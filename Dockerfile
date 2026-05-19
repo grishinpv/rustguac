@@ -48,7 +48,7 @@ WORKDIR /build/guacamole-server
 RUN for patch in /build/patches/*.patch; do \
         [ -f "$patch" ] || continue; \
         echo "Applying patch: $(basename "$patch")"; \
-        git apply "$patch"; \
+        git apply --ignore-space-change "$patch"; \
     done
 
 RUN autoreconf -fi
@@ -130,7 +130,7 @@ COPY --from=rust-builder /build/target/release/rustguac /opt/rustguac/bin/rustgu
 
 # Static assets: legacy guacamole client + CSS, then React SPA on top
 COPY static/ /opt/rustguac/static/
-COPY --from=frontend-builder /build/web/ /opt/rustguac/static/
+COPY --from=frontend-builder /build/web/ /opt/rustguac/web/
 
 # Library path for guacd
 RUN echo "/opt/rustguac/lib" > /etc/ld.so.conf.d/rustguac.conf && ldconfig
@@ -171,7 +171,7 @@ RUN cat > /opt/rustguac/config.toml.default <<'EOF'
 listen_addr = "0.0.0.0:8089"
 guacd_addr = "127.0.0.1:4822"
 recording_path = "/opt/rustguac/recordings"
-static_path = "/opt/rustguac/static"
+static_path = "/opt/rustguac/web"
 ui_frontend = "spa"
 db_path = "/opt/rustguac/data/rustguac.db"
 session_pending_timeout_secs = 60

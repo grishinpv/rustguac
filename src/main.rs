@@ -1128,11 +1128,11 @@ async fn run_server(config: Config, database: Db) {
         );
     }
     let static_fallback = if ui_frontend == UiFrontend::Spa {
-        Either::A(
+        Either::Left(
             ServeDir::new(&static_path).not_found_service(ServeFile::new(spa_index)),
         )
     } else {
-        Either::B(ServeDir::new(&static_path))
+        Either::Right(ServeDir::new(&static_path))
     };
     app = app.fallback_service(static_fallback);
 
