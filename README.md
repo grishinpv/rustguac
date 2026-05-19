@@ -78,6 +78,17 @@ guacd (C, from guacamole-server)
 - **8 built-in themes** with CSS gradient backgrounds, or configure your own
 - **Reports page** with session analytics, history, and CSV export
 
+#### Static HTML vs React SPA (`ui_frontend`)
+
+In `config.toml`, set `ui_frontend` to control what is served from `static_path`:
+
+| Value | Behaviour |
+|-------|-----------|
+| `static` (default) | Legacy multi-page UI (`index.html`, `connections.html`, …) and a standalone Guacamole HTML page at `/client/{session_id}`. |
+| `spa` | Single-page app: deploy the Vite build (`npm run build` in `frontend/`) so `static_path` contains `index.html` and `assets/`. Missing files fall back to `index.html` for client-side routes. `/client/...` is handled by the React app. Legacy `*.html` URLs redirect to `/connections`, `/sessions`, etc. |
+
+The Docker image copies `static/` then the React build and sets `ui_frontend = "spa"` in the generated default config.
+
 ## Requirements
 
 | Component | Status | Notes |

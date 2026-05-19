@@ -21,6 +21,8 @@ VITE_PROXY_TARGET=http://127.0.0.1:8080
 
 Production builds **do not** embed the API base URL: deploy the built assets behind the same origin as the API (or a reverse proxy that forwards `/api`, `/auth`, `/ws`), matching how the static site was served.
 
+On the **rustguac** server, set `ui_frontend = "spa"` in `config.toml` and copy the contents of `frontend/dist/` into `static_path` (merge with existing `static/guac` assets if needed). With `ui_frontend = "static"` (the default), the server keeps serving the legacy HTML pages only.
+
 ## Scripts
 
 ```bash

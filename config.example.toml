@@ -27,6 +27,10 @@ recording_path = "./recordings"
 # Default: "./static"
 static_path = "./static"
 
+# Web UI: "static" (default) — legacy multi-page HTML from static_path;
+# "spa" — Vite/React single-page app (index.html + assets in static_path, SPA fallback).
+# ui_frontend = "spa"
+
 # Path to the SQLite database (admins, OIDC users, auth sessions).
 # Default: "./rustguac.db"
 db_path = "./rustguac.db"

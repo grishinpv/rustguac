@@ -2,9 +2,10 @@
 # Multi-stage Dockerfile for rustguac
 #
 # Stages:
-#   1. guacd-builder  — compile guacd from guacamole-server source
-#   2. rust-builder   — compile rustguac binary
-#   3. runtime        — minimal image with both binaries + runtime deps
+#   1. guacd-builder   — compile guacd from guacamole-server source
+#   2. frontend-builder — npm build React SPA → /build/web
+#   3. rust-builder    — compile rustguac binary
+#   4. runtime         — minimal image with both binaries + runtime deps
 #
 # Build:
 #   docker build -t rustguac .
@@ -74,17 +75,17 @@ RUN /build/guacamole-server/configure \
 # ---------------------------------------------------------------------------
 # Stage 2.1: Build React frontend
 # ---------------------------------------------------------------------------
-    FROM node:22-bookworm-slim AS frontend-builder
+FROM node:22-bookworm-slim AS frontend-builder
 
-    WORKDIR /build
-    COPY frontend/package.json frontend/package-lock.json ./frontend/
-    RUN cd frontend && npm ci
-    
-    COPY frontend ./frontend
-    RUN cd frontend && node node_modules/vite/bin/vite.js build --outDir ../web --emptyOutDir
-    
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./frontend/
+RUN cd frontend && npm ci
 
-    
+COPY frontend ./frontend
+RUN cd frontend && node node_modules/vite/bin/vite.js build --outDir ../web --emptyOutDir
+
+
+
 # ---------------------------------------------------------------------------
 # Stage 2.2: Build rustguac
 # ---------------------------------------------------------------------------
@@ -127,8 +128,9 @@ COPY --from=guacd-builder /opt/rustguac/lib/ /opt/rustguac/lib/
 # Install rustguac binary
 COPY --from=rust-builder /build/target/release/rustguac /opt/rustguac/bin/rustguac
 
-# Install static web assets
+# Static assets: legacy guacamole client + CSS, then React SPA on top
 COPY static/ /opt/rustguac/static/
+COPY --from=frontend-builder /build/web/ /opt/rustguac/static/
 
 # Library path for guacd
 RUN echo "/opt/rustguac/lib" > /etc/ld.so.conf.d/rustguac.conf && ldconfig
@@ -170,6 +172,7 @@ listen_addr = "0.0.0.0:8089"
 guacd_addr = "127.0.0.1:4822"
 recording_path = "/opt/rustguac/recordings"
 static_path = "/opt/rustguac/static"
+ui_frontend = "spa"
 db_path = "/opt/rustguac/data/rustguac.db"
 session_pending_timeout_secs = 60
 xvnc_path = "Xvnc"

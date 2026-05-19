@@ -18,21 +18,23 @@ mod websocket;
 use crate::api::{
     AppState, DriveConfigured, OidcEnabled, SiteTitle, ThemeData, VaultConfigured, VaultState,
 };
-use crate::config::Config;
+use crate::config::{Config, UiFrontend};
 use crate::db::Db;
 use crate::session::SessionManager;
 use axum::extract::{DefaultBodyLimit, Request};
 use axum::response::Html;
+use axum::response::Redirect;
 use axum::response::Response;
 use axum::routing::{delete, get, post, put};
 use axum::{middleware, Extension, Router};
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tower::util::Either;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
 };
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -621,25 +623,27 @@ async fn run_server(config: Config, database: Db) {
         let logo = config.theme.as_ref().and_then(|t| t.logo_url.as_deref());
         let title = &config.site_title;
         let mut pages = std::collections::HashMap::new();
-        // Embedded client.html
+        // Embedded client.html (used by the static HTML `/client/{id}` route)
         pages.insert(
             "client.html".to_string(),
             rewrite_branding(include_str!("../static/client.html"), title, logo),
         );
-        // Disk-served HTML pages
-        for name in &[
-            "index.html",
-            "connections.html",
-            "sessions.html",
-            "recordings.html",
-            "reports.html",
-            "admin.html",
-            "tokens.html",
-            "docs.html",
-        ] {
-            let path = std::path::Path::new(&static_path).join(name);
-            if let Ok(html) = std::fs::read_to_string(&path) {
-                pages.insert(name.to_string(), rewrite_branding(&html, title, logo));
+        // Disk-served legacy HTML pages (only loaded in static UI mode)
+        if config.ui_frontend == UiFrontend::Static {
+            for name in &[
+                "index.html",
+                "connections.html",
+                "sessions.html",
+                "recordings.html",
+                "reports.html",
+                "admin.html",
+                "tokens.html",
+                "docs.html",
+            ] {
+                let path = std::path::Path::new(&static_path).join(name);
+                if let Ok(html) = std::fs::read_to_string(&path) {
+                    pages.insert(name.to_string(), rewrite_branding(&html, title, logo));
+                }
             }
         }
         Arc::new(pages)
@@ -1010,31 +1014,57 @@ async fn run_server(config: Config, database: Db) {
         .layer(Extension(oidc_enabled.clone()))
         .layer(Extension(database.clone()));
 
+    let ui_frontend = manager.config().ui_frontend;
+
     // Unauthenticated stateful routes
-    let unauth_routes = Router::new()
+    let mut unauth = Router::new()
         .route("/api/health", get(api::health))
         .route("/api/docs", get(api::get_docs))
-        .route("/api/sessions/{id}/banner", get(api::get_session_banner))
-        .route("/client/{session_id}", get(serve_client_page))
-        .with_state(manager);
+        .route("/api/sessions/{id}/banner", get(api::get_session_banner));
+    if ui_frontend == UiFrontend::Static {
+        unauth = unauth.route("/client/{session_id}", get(serve_client_page));
+    }
+    let unauth_routes = unauth.with_state(manager);
 
-    // Branded HTML page routes (served from memory with site_title/logo baked in)
-    let html_routes = Router::new()
-        .route("/", get(serve_branded_page))
-        .route("/index.html", get(serve_branded_page))
-        .route("/connections.html", get(serve_branded_page))
-        // Legacy path — the page was renamed from Address Book → Connections.
-        // Permanent redirect so bookmarks keep working.
-        .route(
-            "/addressbook.html",
-            get(|| async { axum::response::Redirect::permanent("/connections.html") }),
-        )
-        .route("/sessions.html", get(serve_branded_page))
-        .route("/recordings.html", get(serve_branded_page))
-        .route("/reports.html", get(serve_branded_page))
-        .route("/admin.html", get(serve_branded_page))
-        .route("/tokens.html", get(serve_branded_page))
-        .route("/docs.html", get(serve_branded_page));
+    // Legacy multi-page HTML vs React SPA (redirects for old `.html` bookmarks)
+    let html_or_ui_routes = match ui_frontend {
+        UiFrontend::Static => Router::new()
+            .route("/", get(serve_branded_page))
+            .route("/index.html", get(serve_branded_page))
+            .route("/connections.html", get(serve_branded_page))
+            .route(
+                "/addressbook.html",
+                get(|| async { Redirect::permanent("/connections.html") }),
+            )
+            .route("/sessions.html", get(serve_branded_page))
+            .route("/recordings.html", get(serve_branded_page))
+            .route("/reports.html", get(serve_branded_page))
+            .route("/admin.html", get(serve_branded_page))
+            .route("/tokens.html", get(serve_branded_page))
+            .route("/docs.html", get(serve_branded_page)),
+        UiFrontend::Spa => Router::new()
+            .route("/index.html", get(|| async { Redirect::permanent("/") }))
+            .route(
+                "/connections.html",
+                get(|| async { Redirect::permanent("/connections") }),
+            )
+            .route(
+                "/addressbook.html",
+                get(|| async { Redirect::permanent("/connections") }),
+            )
+            .route(
+                "/sessions.html",
+                get(|| async { Redirect::permanent("/sessions") }),
+            )
+            .route(
+                "/recordings.html",
+                get(|| async { Redirect::permanent("/recordings") }),
+            )
+            .route("/reports.html", get(|| async { Redirect::permanent("/reports") }))
+            .route("/admin.html", get(|| async { Redirect::permanent("/admin") }))
+            .route("/tokens.html", get(|| async { Redirect::permanent("/tokens") }))
+            .route("/docs.html", get(|| async { Redirect::permanent("/docs") })),
+    };
 
     // Build full router (all Router<()> at this point)
     let mut app: Router<()> = Router::new()
@@ -1043,7 +1073,7 @@ async fn run_server(config: Config, database: Db) {
         .merge(ws_route)
         .merge(connect_route)
         .merge(unauth_routes)
-        .merge(html_routes);
+        .merge(html_or_ui_routes);
 
     // Add OIDC routes if configured (always rate-limited to prevent brute-force)
     if let Some(ref oidc_st) = oidc_state {
@@ -1089,8 +1119,22 @@ async fn run_server(config: Config, database: Db) {
         .layer(Extension(site_title))
         .layer(Extension(theme_data))
         .layer(Extension(trusted_proxies))
-        .layer(Extension(branded_pages))
-        .fallback_service(ServeDir::new(&static_path));
+        .layer(Extension(branded_pages));
+    let spa_index = static_path.join("index.html");
+    if ui_frontend == UiFrontend::Spa && !spa_index.exists() {
+        tracing::warn!(
+            path = %spa_index.display(),
+            "ui_frontend = \"spa\" but index.html is missing — copy the Vite build (e.g. npm run build) into static_path"
+        );
+    }
+    let static_fallback = if ui_frontend == UiFrontend::Spa {
+        Either::A(
+            ServeDir::new(&static_path).not_found_service(ServeFile::new(spa_index)),
+        )
+    } else {
+        Either::B(ServeDir::new(&static_path))
+    };
+    app = app.fallback_service(static_fallback);
 
     let scheme = if server_tls.is_some() {
         "https"
@@ -1099,6 +1143,10 @@ async fn run_server(config: Config, database: Db) {
     };
     tracing::info!("rustguac starting on {}://{}", scheme, listen_addr);
     tracing::info!("Static files served from {:?}", static_path);
+    match ui_frontend {
+        UiFrontend::Static => tracing::info!(r#type = "static", "Web UI: legacy HTML pages from static_path"),
+        UiFrontend::Spa => tracing::info!(r#type = "spa", "Web UI: SPA (index.html fallback for client-side routes)"),
+    }
 
     // TCP keepalive on the listener. Linux inherits SO_KEEPALIVE and the
     // associated TCP_KEEPIDLE/INTVL/CNT options on accept(), so accepted

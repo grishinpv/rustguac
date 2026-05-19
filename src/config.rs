@@ -275,6 +275,21 @@ fn default_vault_base_path() -> String {
     "rustguac".into()
 }
 
+/// Which web UI is served from [`Config::static_path`].
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UiFrontend {
+    /// Legacy multi-page HTML (`index.html`, `connections.html`, …) plus
+    /// a standalone Guacamole client page at `/client/{id}` (HTML, not the SPA).
+    #[default]
+    Static,
+    /// Vite/React SPA: `index.html` and hashed assets in `static_path`; unknown
+    /// paths fall back to `index.html` for client-side routing. Legacy `*.html`
+    /// URLs redirect to the SPA routes. Remote desktop uses `/client/{id}` in
+    /// the SPA (no separate `client.html` page).
+    Spa,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     #[serde(default = "default_listen_addr")]
@@ -288,6 +303,10 @@ pub struct Config {
 
     #[serde(default = "default_static_path")]
     pub static_path: PathBuf,
+
+    /// Web UI: [`UiFrontend::Static`] (default) or [`UiFrontend::Spa`] for the React build.
+    #[serde(default)]
+    pub ui_frontend: UiFrontend,
 
     #[serde(default = "default_db_path")]
     pub db_path: PathBuf,
@@ -964,6 +983,7 @@ impl Default for Config {
             guacd_addr: default_guacd_addr(),
             recording_path: default_recording_path(),
             static_path: default_static_path(),
+            ui_frontend: UiFrontend::default(),
             db_path: default_db_path(),
             session_pending_timeout_secs: default_session_timeout_secs(),
             session_max_duration_secs: default_session_max_duration_secs(),

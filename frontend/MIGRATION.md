@@ -2,6 +2,15 @@
 
 This document maps the legacy **static** frontend (`../static/`) to the new SPA and records parity expectations. The **Rust backend is unchanged**; all paths and payloads follow the same contracts as the HTML/JS version.
 
+## Choosing the UI on the server
+
+The binary reads `ui_frontend` from `config.toml`:
+
+- **`static`** (default): serves the legacy `.html` pages from `static_path` and the standalone Guacamole page at `/client/{session_id}`.
+- **`spa`**: serves the Vite/React build from `static_path` (`index.html` + `assets/`), with SPA fallback and redirects from old `*.html` URLs to the React routes.
+
+Copy `frontend/dist/*` into `static_path` (alongside `guac/` and other assets) before enabling `spa`. Docker does this automatically; see the root `README.md`.
+
 ## Source → destination map
 
 | Legacy | React route | Notes |
