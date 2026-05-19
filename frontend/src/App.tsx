@@ -1,10 +1,11 @@
 import { lazy, Suspense } from 'react'
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { fetchMe } from './api/services'
+import { fetchMe } from '@/services'
 import { AppShell } from './components/layout/AppShell'
 import { LoginPage } from './pages/LoginPage'
 import { ClientPage } from './pages/ClientPage'
+import { Skeleton } from './components/ui/skeleton'
 
 const ConnectionsPage = lazy(() => import('./pages/connections/ConnectionsPage').then((m) => ({ default: m.ConnectionsPage })))
 const SessionsPage = lazy(() => import('./pages/SessionsPage').then((m) => ({ default: m.SessionsPage })))
@@ -21,14 +22,33 @@ function AuthenticatedLayout() {
     retry: false,
   })
   if (isPending) {
-    return <div className="p-8 text-[var(--text-muted)]">Loading…</div>
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-8">
+        <div className="flex w-full max-w-sm flex-col gap-3 rounded-xl border border-border/60 bg-card p-6 shadow-sm">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-[80%]" />
+          <Skeleton className="h-9 w-full rounded-md" />
+        </div>
+      </div>
+    )
   }
   if (isError || !me) {
     return <Navigate to="/" replace />
   }
   return (
     <AppShell me={me}>
-      <Suspense fallback={<div className="p-8 text-[var(--text-muted)]">Loading…</div>}>
+      <Suspense
+        fallback={
+          <div className="flex min-h-[40vh] items-center justify-center p-8">
+            <div className="flex w-full max-w-lg flex-col gap-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          </div>
+        }
+      >
         <Outlet />
       </Suspense>
     </AppShell>

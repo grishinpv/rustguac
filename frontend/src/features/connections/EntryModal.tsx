@@ -5,7 +5,7 @@ import {
   deleteEntry,
   probeHostKey,
   updateEntry,
-} from '../../api/services'
+} from '@/services'
 import { buildEntryPayload, defaultEntryForm, populateFormFromEntry, type EntryFormState } from './entryForm'
 
 type HopRow = JumpHost & { expanded: boolean }

@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { createMyToken, fetchMe, fetchMyTokens, revokeMyToken } from '../api/services'
+import { createMyToken, fetchMe, fetchMyTokens, revokeMyToken } from '../services/services'
 import { useAuthStore } from '../stores/authStore'
 import type { Role } from '../types/api'
-import { getErrorMessage } from '../api/client'
+import { getErrorMessage } from '../services/client'
 
 export function TokensPage() {
   const qc = useQueryClient()

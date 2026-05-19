@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { fetchCredentialVariables, fetchMyCredentials, saveMyCredentials } from '../api/services'
-import { getErrorMessage } from '../api/client'
+import { fetchCredentialVariables, fetchMyCredentials, saveMyCredentials } from '../services/services'
+import { getErrorMessage } from '../services/client'
 
 function suffixOrder(n: string) {
   if (n.endsWith('_username')) return 0

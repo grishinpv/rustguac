@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { createFolder, fetchKnownGroups, updateFolder } from '../../api/services'
+import { createFolder, fetchKnownGroups, updateFolder } from '@/services'
 
 export interface FolderEditState {
   scope: string

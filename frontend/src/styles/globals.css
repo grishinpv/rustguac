@@ -1,0 +1,243 @@
+@import 'tailwindcss';
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:is(.dark *));
+
+/* UI shell tokens (--ui-*) — never overwritten by server theme presets */
+:root {
+  --radius: 0.5rem;
+  --ui-background: 0 0% 98%;
+  --ui-foreground: 240 6% 10%;
+  --ui-card: 0 0% 100%;
+  --ui-card-foreground: 240 6% 10%;
+  --ui-popover: 0 0% 100%;
+  --ui-popover-foreground: 240 6% 10%;
+  --ui-primary: 240 6% 10%;
+  --ui-primary-foreground: 0 0% 98%;
+  --ui-secondary: 240 5% 96%;
+  --ui-secondary-foreground: 240 6% 10%;
+  --ui-muted: 240 5% 96%;
+  --ui-muted-foreground: 240 4% 46%;
+  --ui-accent: 240 5% 92%;
+  --ui-accent-foreground: 240 6% 10%;
+  --ui-destructive: 0 72% 51%;
+  --ui-destructive-foreground: 0 0% 98%;
+  --ui-border: 240 6% 90%;
+  --ui-input: 240 6% 90%;
+  --ui-ring: 240 6% 10%;
+  --ui-sidebar: 240 5% 97%;
+  --ui-sidebar-foreground: 240 6% 10%;
+  --ui-sidebar-border: 240 6% 90%;
+  --ui-sidebar-accent: 240 5% 93%;
+  --ui-sidebar-ring: 240 6% 10%;
+}
+
+.dark {
+  --ui-background: 240 6% 6%;
+  --ui-foreground: 0 0% 96%;
+  --ui-card: 240 5% 8%;
+  --ui-card-foreground: 0 0% 96%;
+  --ui-popover: 240 5% 8%;
+  --ui-popover-foreground: 0 0% 96%;
+  --ui-primary: 0 0% 98%;
+  --ui-primary-foreground: 240 6% 6%;
+  --ui-secondary: 240 4% 14%;
+  --ui-secondary-foreground: 0 0% 96%;
+  --ui-muted: 240 4% 14%;
+  --ui-muted-foreground: 240 5% 58%;
+  --ui-accent: 240 4% 16%;
+  --ui-accent-foreground: 0 0% 96%;
+  --ui-destructive: 0 62% 45%;
+  --ui-destructive-foreground: 0 0% 98%;
+  --ui-border: 240 4% 16%;
+  --ui-input: 240 4% 16%;
+  --ui-ring: 240 5% 64%;
+  --ui-sidebar: 240 6% 5%;
+  --ui-sidebar-foreground: 240 5% 88%;
+  --ui-sidebar-border: 240 4% 14%;
+  --ui-sidebar-accent: 240 4% 12%;
+  --ui-sidebar-ring: 240 5% 64%;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: hsl(var(--ui-background));
+  --color-foreground: hsl(var(--ui-foreground));
+  --color-card: hsl(var(--ui-card));
+  --color-card-foreground: hsl(var(--ui-card-foreground));
+  --color-popover: hsl(var(--ui-popover));
+  --color-popover-foreground: hsl(var(--ui-popover-foreground));
+  --color-primary: hsl(var(--ui-primary));
+  --color-primary-foreground: hsl(var(--ui-primary-foreground));
+  --color-secondary: hsl(var(--ui-secondary));
+  --color-secondary-foreground: hsl(var(--ui-secondary-foreground));
+  --color-muted: hsl(var(--ui-muted));
+  --color-muted-foreground: hsl(var(--ui-muted-foreground));
+  --color-accent: hsl(var(--ui-accent));
+  --color-accent-foreground: hsl(var(--ui-accent-foreground));
+  --color-destructive: hsl(var(--ui-destructive));
+  --color-destructive-foreground: hsl(var(--ui-destructive-foreground));
+  --color-border: hsl(var(--ui-border));
+  --color-input: hsl(var(--ui-input));
+  --color-ring: hsl(var(--ui-ring));
+  --color-sidebar: hsl(var(--ui-sidebar));
+  --color-sidebar-foreground: hsl(var(--ui-sidebar-foreground));
+  --color-sidebar-border: hsl(var(--ui-sidebar-border));
+  --color-sidebar-accent: hsl(var(--ui-sidebar-accent));
+  --color-sidebar-ring: hsl(var(--ui-sidebar-ring));
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply scroll-smooth antialiased;
+  }
+  body {
+    @apply min-h-screen bg-background font-sans text-foreground text-[13px] leading-normal tracking-tight;
+  }
+  #root {
+    @apply min-h-screen;
+  }
+}
+
+@layer components {
+  .type-badge {
+    @apply inline-block min-w-[3.25rem] rounded border px-2 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wider;
+  }
+  .type-ssh {
+    background: var(--type-ssh-bg, #14532d);
+    color: var(--type-ssh-fg, #86efac);
+    border-color: color-mix(in oklab, var(--type-ssh-fg, #86efac) 35%, transparent);
+  }
+  .type-rdp {
+    background: var(--type-rdp-bg, #431407);
+    color: var(--type-rdp-fg, #fdba74);
+    border-color: color-mix(in oklab, var(--type-rdp-fg, #fdba74) 35%, transparent);
+  }
+  .type-vnc {
+    background: var(--type-vnc-bg, #3b0764);
+    color: var(--type-vnc-fg, #d8b4fe);
+    border-color: color-mix(in oklab, var(--type-vnc-fg, #d8b4fe) 35%, transparent);
+  }
+  .type-web {
+    background: var(--type-web-bg, #172554);
+    color: var(--type-web-fg, #93c5fd);
+    border-color: color-mix(in oklab, var(--type-web-fg, #93c5fd) 35%, transparent);
+  }
+  .type-vdi {
+    background: var(--type-vdi-bg, #042f2e);
+    color: var(--type-vdi-fg, #5eead4);
+    border-color: color-mix(in oklab, var(--type-vdi-fg, #5eead4) 35%, transparent);
+  }
+
+  .btn-primary {
+    @apply inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-transparent px-3 text-sm font-medium shadow-sm transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50;
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--text-on-primary, #fff);
+  }
+  .btn-primary:hover {
+    background: var(--primary-hover, var(--primary));
+    border-color: var(--primary-hover, var(--primary));
+  }
+  .btn-connect {
+    @apply inline-flex h-8 min-w-[7.5rem] cursor-pointer items-center justify-center gap-1 rounded-md border px-3 text-xs font-medium transition-colors;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg, #0a0a0a);
+  }
+  .btn-connect:hover {
+    background: var(--accent-hover, var(--accent));
+    border-color: var(--accent-hover, var(--accent));
+  }
+  .btn-add {
+    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1 rounded-md border border-border bg-transparent px-3 text-xs font-medium text-foreground shadow-none transition-colors hover:border-ring hover:bg-muted;
+  }
+  .btn-small {
+    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1 rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground;
+  }
+  .btn-action {
+    color: var(--accent);
+  }
+  .btn-action:hover {
+    color: var(--accent-hover, var(--accent));
+  }
+  .btn-cancel {
+    @apply inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border bg-secondary px-3 text-sm font-medium text-secondary-foreground shadow-sm transition-colors hover:bg-muted;
+  }
+  .btn-danger {
+    @apply border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground;
+  }
+  .btn-delete {
+    @apply border-destructive/30 text-destructive hover:bg-destructive/10;
+  }
+
+  .modal-overlay.active {
+    @apply flex;
+  }
+}
+
+/* Operator palette (hex) — overridden by initThemeFromPayload / localStorage restore */
+:root {
+  --primary: #18181b;
+  --primary-hover: #27272a;
+  --accent: #0ea5e9;
+  --accent-hover: #0284c7;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --input: #f4f4f5;
+  --text: #18181b;
+  --text-muted: #71717a;
+  --border: #e4e4e7;
+  --text-dim: #a1a1aa;
+  --text-on-primary: #fafafa;
+  --btn-disabled: #a1a1aa;
+  --status-pending: #ca8a04;
+  --status-active: #0d9488;
+  --status-completed: #71717a;
+  --status-error: #dc2626;
+  --status-expired: #71717a;
+  --type-ssh-bg: #14532d;
+  --type-ssh-fg: #86efac;
+  --type-rdp-bg: #431407;
+  --type-rdp-fg: #fdba74;
+  --type-vnc-bg: #3b0764;
+  --type-vnc-fg: #d8b4fe;
+  --type-web-bg: #172554;
+  --type-web-fg: #93c5fd;
+  --type-vdi-bg: #042f2e;
+  --type-vdi-fg: #5eead4;
+  --bg-pattern: none;
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --fz-xs: 11px;
+  --fz-sm: 12px;
+  --fz-md: 13px;
+  --fz-lg: 15px;
+  --fz-xl: 18px;
+  --ctl-sm: 32px;
+  --ctl-md: 36px;
+  --ctl-lg: 44px;
+}
+
+.dark {
+  --bg: #09090b;
+  --surface: #18181b;
+  --input: #27272a;
+  --text: #fafafa;
+  --text-muted: #a1a1aa;
+  --border: #27272a;
+  --text-dim: #71717a;
+}

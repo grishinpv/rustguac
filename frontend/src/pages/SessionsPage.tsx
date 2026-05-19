@@ -8,10 +8,10 @@ import {
   fetchMe,
   fetchSessionsList,
   shadowSession,
-} from '../api/services'
+} from '../services/services'
 import { useAuthStore } from '../stores/authStore'
 import { hasRole } from '../lib/roles'
-import { getErrorMessage } from '../api/client'
+import { getErrorMessage } from '../services/client'
 
 interface Hop {
   hostname: string

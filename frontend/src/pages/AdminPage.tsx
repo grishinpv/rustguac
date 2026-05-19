@@ -19,9 +19,9 @@ import {
   revokeAdminToken,
   setUserRole,
   updateGroupMapping,
-} from '../api/services'
+} from '../services/services'
 import type { GroupMapping, OidcUser, Role, SystemStatus, TokenAuditRow, AddressbookAuditRow, UserTokenRow } from '../types/api'
-import { getErrorMessage } from '../api/client'
+import { getErrorMessage } from '../services/client'
 
 export function AdminPage() {
   const navigate = useNavigate()

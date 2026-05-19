@@ -19,7 +19,7 @@ import {
   fetchSessionsList,
   fetchSubfolders,
   fetchVdiContainers,
-} from '../../api/services'
+} from '../../services/services'
 import { MyCredentialsModal } from '../../components/MyCredentialsModal'
 import { EntryModal, type EntryModalProps } from '../../features/connections/EntryModal'
 import { FolderModal, type FolderEditState } from '../../features/connections/FolderModal'
@@ -195,6 +195,16 @@ export function ConnectionsPage() {
     }
     maybeAutoOpenSingleton(feOnly)
   }, [abQuery.isSuccess, abQuery.data, me?.vault_enabled])
+
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (q === null) return
+    setSearchQ(q)
+    setSearchActive(!!q.trim())
+    const next = new URLSearchParams(searchParams)
+    next.delete('q')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   useEffect(() => {
     const tour = searchParams.get('tour')

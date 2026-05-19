@@ -7,7 +7,7 @@ import {
   fetchReportsSummary,
   fetchTopConnections,
   fetchTopUsers,
-} from '../api/services'
+} from '../services/services'
 import type { HistorySession } from '../types/api'
 import { useAuthStore } from '../stores/authStore'
 import { hasRole } from '../lib/roles'

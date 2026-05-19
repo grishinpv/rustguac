@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchDocs } from '../api/services'
+import { fetchDocs } from '../services/services'
 import type { DocSection } from '../types/api'
 
 const sidebarCls =

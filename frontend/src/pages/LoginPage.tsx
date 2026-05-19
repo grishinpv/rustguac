@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchAuthStatus, fetchMe, validateApiKey } from '../api/services'
-import { useAuthStore } from '../stores/authStore'
-import { getErrorMessage } from '../api/client'
+import { Shield } from 'lucide-react'
+import { fetchAuthStatus, fetchMe, validateApiKey, getErrorMessage } from '@/services'
+import { useAuthStore } from '@/stores/authStore'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -60,79 +65,67 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center" style={{ fontFamily: 'monospace' }}>
-      <div className="mt-8 flex items-center gap-3">
-        <img id="site-logo" src="/logo.svg" alt="" className="h-9 w-auto" />
-        <h1 className="m-0 text-3xl font-bold" style={{ color: 'var(--primary)' }}>
-          {siteTitle}
-        </h1>
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background via-background to-muted/30 px-4 py-12">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent dark:from-primary/10" />
+      <div className="relative z-[1] mb-8 flex flex-col items-center gap-3 text-center">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border/80 bg-card shadow-sm">
+          <Shield className="h-5 w-5 text-muted-foreground" aria-hidden />
+        </div>
+        <div className="flex items-center gap-3">
+          <img id="site-logo" src="/logo.svg" alt="" className="h-8 w-auto opacity-90" />
+          <h1 className="text-xl font-semibold tracking-tight">{siteTitle}</h1>
+        </div>
+        <p className="max-w-sm text-xs text-muted-foreground">Privileged access workspace — remote sessions with audit-ready controls.</p>
       </div>
-      <div className="mt-6 w-full max-w-[380px] px-4">
-        {oidcEnabled ? (
-          <div className="mb-5">
+
+      <Card className="relative z-[1] w-full max-w-[400px] border-border/80 shadow-lg">
+        <CardHeader className="space-y-1 border-b border-border/60 pb-4">
+          <CardTitle className="text-base">Sign in</CardTitle>
+          <CardDescription className="text-xs">Authenticate to open the operator console.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-4">
+          {oidcEnabled ? (
+            <Button type="button" className="h-10 w-full text-sm font-medium" onClick={() => (window.location.href = '/auth/login')}>
+              Continue with SSO
+            </Button>
+          ) : null}
+
+          {oidcEnabled ? (
             <button
               type="button"
-              className="h-[54px] w-full cursor-pointer rounded border-0 text-lg font-bold"
-              style={{ background: 'var(--accent)', color: 'var(--bg)' }}
-              onClick={() => {
-                window.location.href = '/auth/login'
-              }}
+              className="flex w-full items-center justify-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              onClick={() => setShowApiForm(!showApiForm)}
             >
-              Sign in with SSO
+              <span className={cn('transition-transform', showApiForm && 'rotate-90')}>›</span>
+              Sign in with API key
             </button>
-          </div>
-        ) : null}
-        {oidcEnabled ? (
-          <div
-            className="mt-3 cursor-pointer text-base select-none"
-            style={{ color: 'var(--text-muted)' }}
-            onClick={() => setShowApiForm(!showApiForm)}
-            onKeyDown={(e) => e.key === 'Enter' && setShowApiForm(!showApiForm)}
-            role="button"
-            tabIndex={0}
-          >
-            <span
-              className="mr-1 inline-block transition-transform"
-              style={{ transform: showApiForm ? 'rotate(90deg)' : undefined }}
-            >
-              &#9654;
-            </span>{' '}
-            Sign in with API key
-          </div>
-        ) : null}
-        <form
-          onSubmit={onSubmit}
-          className="mt-2 rounded border p-5"
-          style={{ display: showApiForm || !oidcEnabled ? 'block' : 'none', background: 'var(--surface)', borderColor: 'var(--border)' }}
-        >
-          <strong>Login</strong>
-          <label className="mt-3 block text-xs uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-            API Key
-            <input
-              type="password"
-              className="mt-1 box-border block w-full rounded border px-2"
-              style={{ background: 'var(--input)', borderColor: 'var(--border)', color: 'var(--text)', height: 'var(--ctl-md)' }}
-              placeholder="Bearer API key"
-              required
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-5 h-[54px] w-full cursor-pointer rounded border-0 text-lg font-bold disabled:opacity-60"
-            style={{ background: 'var(--primary)', color: 'var(--text-on-primary)' }}
-          >
-            {busy ? 'Checking...' : 'Login'}
-          </button>
-          {err ? (
-            <div className="mt-2" style={{ color: 'var(--primary)' }}>
-              {err}
-            </div>
           ) : null}
-        </form>
-      </div>
+
+          <form
+            onSubmit={onSubmit}
+            className={cn('space-y-4', !showApiForm && oidcEnabled && 'hidden')}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="api-key">API key</Label>
+              <Input
+                id="api-key"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Paste bearer API key"
+                required
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+              />
+            </div>
+            <Button type="submit" className="h-10 w-full" disabled={busy}>
+              {busy ? 'Verifying…' : 'Enter console'}
+            </Button>
+            {err ? <p className="text-center text-xs font-medium text-destructive">{err}</p> : null}
+          </form>
+        </CardContent>
+      </Card>
+
+      <p className="relative z-[1] mt-8 text-[11px] text-muted-foreground">Sessions are recorded and governed per your organization policy.</p>
     </div>
   )
 }
