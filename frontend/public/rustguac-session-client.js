@@ -1,0 +1,961 @@
+function applyThemeColors(colors){var r=document.documentElement.style;for(var k in colors)r.setProperty('--'+k.replace(/_/g,'-'),colors[k]);var s=document.getElementById('bg-pattern-style');if(!s){s=document.createElement('style');s.id='bg-pattern-style';document.head.appendChild(s)}s.textContent=colors.bg_pattern&&colors.bg_pattern!=='none'?'body{background-image:'+colors.bg_pattern+';background-attachment:fixed}':'';localStorage.setItem('rustguac_theme_colors',JSON.stringify(colors))}
+        var _themePresets={},_adminPreset='aurora';
+        function initTheme(t){if(!t)return;_themePresets=t.presets||{};_adminPreset=t.admin_preset||'aurora';var u=localStorage.getItem('rustguac_theme'),active=u&&_themePresets[u]?u:_adminPreset,colors=(active===_adminPreset)?t.admin_colors:_themePresets[active];if(colors)applyThemeColors(colors);}
+        var pathParts = window.location.pathname.split('/');
+        var sessionId = pathParts[pathParts.length - 1];
+
+        if (!sessionId) {
+            document.getElementById('status').textContent = 'Error: No session ID in URL';
+            throw new Error('No session ID');
+        }
+
+        var statusEl = document.getElementById('status');
+        var urlParams = new URLSearchParams(window.location.search);
+        var shareToken = urlParams.get('token');
+        var apiKey = sessionStorage.getItem('rustguac_api_key');
+        var entryName = urlParams.get('name');
+        // Populated from /api/sessions/:id when the session is backed by a
+        // Connections entry. Used by the Reconnect button to launch a fresh
+        // session against the same entry instead of reloading a dead one.
+        var relaunchInfo = null;
+
+        fetch('/api/auth/status').then(function(r){return r.json()}).then(function(d){
+            var siteTitle = d.site_title || 'rustguac';
+            document.title = entryName ? (entryName + ' \u2014 ' + siteTitle) : (siteTitle + ' - Session');
+            initTheme(d.theme);
+        });
+
+        function showBanner(bannerText) {
+            if (!bannerText) return Promise.resolve();
+            return new Promise(function(resolve) {
+                document.getElementById('banner-text').textContent = bannerText;
+                var keyMatch = bannerText.match(/ssh-ed25519\s+\S+(\s+\S+)?/);
+                if (keyMatch) {
+                    var copyBtn = document.createElement('button');
+                    copyBtn.textContent = 'Copy public key';
+                    copyBtn.style.cssText = 'margin-right:1em;padding:0.4em 1em;background:var(--accent);color:var(--bg);border:none;font-family:monospace;font-size:0.9em;border-radius:4px;cursor:pointer;';
+                    copyBtn.addEventListener('click', function() {
+                        var keyText = keyMatch[0];
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(keyText).then(function() {
+                                copyBtn.textContent = 'Copied!';
+                            });
+                        } else {
+                            var ta = document.createElement('textarea');
+                            ta.value = keyText;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(ta);
+                            copyBtn.textContent = 'Copied!';
+                        }
+                    });
+                    document.getElementById('banner-box').insertBefore(copyBtn, document.getElementById('banner-continue'));
+                }
+                document.getElementById('banner-overlay').className = 'visible';
+                document.getElementById('banner-continue').addEventListener('click', function() {
+                    document.getElementById('banner-overlay').className = '';
+                    resolve();
+                });
+            });
+        }
+
+        if (shareToken) {
+            fetch('/api/sessions/' + sessionId + '/banner?token=' + encodeURIComponent(shareToken))
+            .then(function(res) { return res.ok ? res.json() : null; })
+            .then(function(data) { return showBanner(data && data.banner); })
+            .then(function() { startGuacamole(); })
+            .catch(function() { startGuacamole(); });
+        } else {
+            var fetchHeaders = {};
+            if (apiKey) fetchHeaders['Authorization'] = 'Bearer ' + apiKey;
+            fetch('/api/sessions/' + sessionId, { headers: fetchHeaders, credentials: 'same-origin' })
+            .then(function(res) {
+                if (!res.ok) { statusEl.textContent = 'Error: Session not found'; throw new Error('Session not found'); }
+                return res.json();
+            })
+            .then(function(session) {
+                if (session && session.address_book_entry) {
+                    relaunchInfo = {
+                        entry_key: session.address_book_entry,
+                        folder: session.address_book_folder || '',
+                        display_name: session.entry_display_name || ''
+                    };
+                }
+                return showBanner(session.banner);
+            })
+            .then(function() { startGuacamole(); })
+            .catch(function(err) { statusEl.textContent = 'Error: ' + err.message; });
+        }
+
+        function connectWebSocket(ticketParam) {
+            var wsProtocol = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+            var wsUrl = wsProtocol + '//' + window.location.host + '/ws/' + sessionId;
+            if (ticketParam) wsUrl += '?ticket=' + encodeURIComponent(ticketParam);
+
+            var tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+            var client = new Guacamole.Client(tunnel);
+            // Expose for console debugging (e.g. client._h264Decoder.stats())
+            window.__guac_client = client;
+            setupClient(client, tunnel);
+        }
+
+        function startGuacamole() {
+            statusEl.textContent = 'Connecting to session ' + sessionId.substring(0, 8) + '...';
+
+            // API key users: exchange key for a single-use ticket before connecting.
+            // This keeps the API key out of the WebSocket URL (visible in logs).
+            if (apiKey) {
+                fetch('/api/ws-ticket', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + apiKey }
+                })
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    if (data.ticket) {
+                        connectWebSocket(data.ticket);
+                    } else {
+                        statusEl.textContent = 'Failed to obtain WebSocket ticket';
+                    }
+                })
+                .catch(function(err) {
+                    statusEl.textContent = 'Ticket error: ' + err.message;
+                });
+                return;
+            }
+
+            // OIDC users: connect directly (session cookie handles auth)
+            connectWebSocket(null);
+        }
+
+        function setupClient(client, tunnel) {
+
+            // Wrap tunnel.oninstruction to log unique opcodes from guacd (diagnostic)
+            var seenOpcodes = {};
+            var origOnInstruction = tunnel.oninstruction;
+            tunnel.oninstruction = function(opcode, args) {
+                if (!seenOpcodes[opcode]) {
+                    seenOpcodes[opcode] = true;
+                    if (typeof console !== 'undefined') console.log('[rustguac] instruction: ' + opcode + (args.length ? ' (' + args.length + ' args)' : ''));
+                }
+                if (origOnInstruction) origOnInstruction(opcode, args);
+            };
+
+            var displayEl = document.getElementById('display');
+            displayEl.appendChild(client.getDisplay().getElement());
+
+            // в”Ђв”Ђ Resume AudioContext on user interaction (browser autoplay policy) в”Ђв”Ђ
+            function resumeAudio() {
+                var ctx = Guacamole.AudioContextFactory.getAudioContext();
+                if (ctx && ctx.state === 'suspended') {
+                    ctx.resume().then(function() {
+                        if (typeof console !== 'undefined') console.log('[rustguac] AudioContext resumed');
+                    });
+                }
+            }
+            // Try on every interaction type вЂ” browsers are strict about this
+            ['click', 'keydown', 'mousedown', 'touchstart'].forEach(function(evt) {
+                document.addEventListener(evt, resumeAudio, true);
+            });
+
+            // в”Ђв”Ђ Clipboard state в”Ђв”Ђ
+            var remoteClipboard = '';
+            var panelOpen = false;
+            var clipboardPanel = null;
+            var clipboardTextarea = null;
+            var clipboardStatusEl = null;
+
+            function setClipboardStatus(msg) {
+                if (!clipboardStatusEl) return;
+                clipboardStatusEl.textContent = msg;
+                setTimeout(function() {
+                    if (clipboardStatusEl && clipboardStatusEl.textContent === msg) clipboardStatusEl.textContent = '';
+                }, 3000);
+            }
+
+            // в”Ђв”Ђ Build clipboard panel dynamically в”Ђв”Ђ
+            function buildClipboardPanel() {
+                if (clipboardPanel) return;
+
+                clipboardPanel = document.createElement('div');
+                clipboardPanel.style.cssText = 'display:none;position:fixed;top:0;left:0;bottom:0;width:380px;background:var(--bg);border-right:2px solid var(--primary);z-index:3000;font-family:monospace;color:var(--text);flex-direction:column;';
+
+                clipboardPanel.innerHTML =
+                    '<div style="display:flex;align-items:center;gap:0.6em;padding:0.8em 1em;border-bottom:1px solid var(--border);background:var(--surface);">' +
+                        '<h3 style="margin:0;flex:1;color:var(--primary);font-size:1.1em;">Session</h3>' +
+                        '<button id="cp-home" style="background:var(--input);border:1px solid var(--border);color:var(--accent);font-family:monospace;font-size:0.9em;padding:0.35em 0.8em;border-radius:3px;cursor:pointer;" title="Return to the Connections page">&#127968; Home</button>' +
+                        '<button id="cp-close" style="background:none;border:none;color:var(--text-dim);font-size:1.6em;cursor:pointer;font-family:monospace;padding:0 0.3em;">&times;</button>' +
+                    '</div>' +
+                    '<div style="flex:1;display:flex;flex-direction:column;padding:1em;gap:0.8em;overflow-y:auto;min-height:0;">' +
+                        '<div style="color:var(--text-muted);font-size:0.95em;">Shared clipboard. Paste text below and click Send, or copy text received from the remote session.</div>' +
+                        '<textarea id="cp-text" style="flex:1;min-height:150px;width:100%;background:var(--input);border:1px solid var(--border);color:var(--text);font-family:monospace;font-size:1em;padding:0.6em;resize:none;border-radius:3px;box-sizing:border-box;" placeholder="Paste text here..."></textarea>' +
+                        '<div style="display:flex;gap:0.6em;flex-wrap:wrap;">' +
+                            '<button id="cp-send" style="padding:0.4em 0.8em;background:var(--accent);color:var(--bg);font-weight:bold;border:none;font-family:monospace;font-size:0.95em;border-radius:3px;cursor:pointer;">Send to session</button>' +
+                            '<button id="cp-copy" style="padding:0.4em 0.8em;background:var(--input);color:var(--accent);border:1px solid var(--border);font-family:monospace;font-size:0.95em;border-radius:3px;cursor:pointer;">Copy to clipboard</button>' +
+                            '<button id="cp-clear" style="padding:0.4em 0.8em;background:var(--border);color:var(--text-muted);border:none;font-family:monospace;font-size:0.95em;border-radius:3px;cursor:pointer;">Clear</button>' +
+                        '</div>' +
+                        '<div id="cp-status" style="color:var(--accent);font-size:0.9em;min-height:1.2em;"></div>' +
+                        '<div style="color:var(--text-dim);font-size:0.85em;line-height:1.4;">Press <b>Ctrl+Alt+Shift</b> to toggle this panel.<br>Text copied in the remote session appears here automatically.</div>' +
+                    '</div>';
+
+                document.body.appendChild(clipboardPanel);
+                clipboardTextarea = document.getElementById('cp-text');
+                clipboardStatusEl = document.getElementById('cp-status');
+
+                document.getElementById('cp-close').addEventListener('click', function() {
+                    toggleClipboardPanel();
+                });
+                document.getElementById('cp-home').addEventListener('click', function() {
+                    // Provides the escape hatch for users whose only entry
+                    // has auto_open_if_singleton set вЂ” navigates this tab
+                    // back to Connections. Session may keep running until
+                    // socket closes; user can explicitly terminate from
+                    // Connections' active-session card.
+                    window.location.href = '/connections';
+                });
+                document.getElementById('cp-send').addEventListener('click', function() {
+                    if (clipboardTextarea.value) sendClipboardToRemote(clipboardTextarea.value);
+                });
+                document.getElementById('cp-copy').addEventListener('click', function() {
+                    var text = clipboardTextarea.value;
+                    if (!text) return;
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(text).then(function() {
+                            setClipboardStatus('Copied to browser clipboard.');
+                        }).catch(function() {
+                            clipboardTextarea.select();
+                            document.execCommand('copy');
+                            setClipboardStatus('Copied.');
+                        });
+                    } else {
+                        clipboardTextarea.select();
+                        document.execCommand('copy');
+                        setClipboardStatus('Copied.');
+                    }
+                });
+                document.getElementById('cp-clear').addEventListener('click', function() {
+                    clipboardTextarea.value = '';
+                    remoteClipboard = '';
+                });
+            }
+
+            // в”Ђв”Ђ Build toggle tab (always visible on right edge) в”Ђв”Ђ
+            var toggleTab = document.createElement('div');
+            toggleTab.textContent = 'рџ“‹ Clipboard';
+            toggleTab.title = 'Toggle clipboard panel (Ctrl+Alt+Shift)';
+            toggleTab.style.cssText = 'position:fixed;left:-1px;top:50%;transform:translateY(-50%);writing-mode:vertical-rl;background:var(--primary);color:var(--text-on-primary);padding:0.6em 0.3em;font-family:monospace;font-size:0.75em;cursor:pointer;z-index:3001;border-radius:0 4px 4px 0;opacity:0.6;letter-spacing:0.1em;';
+            toggleTab.addEventListener('mouseenter', function() { toggleTab.style.opacity = '1'; });
+            toggleTab.addEventListener('mouseleave', function() { toggleTab.style.opacity = '0.6'; });
+            toggleTab.addEventListener('click', function() { toggleClipboardPanel(); });
+            document.body.appendChild(toggleTab);
+
+            // в”Ђв”Ђ Receive clipboard from remote в”Ђв”Ђ
+            client.onclipboard = function(stream, mimetype) {
+                if (mimetype !== 'text/plain') {
+                    var r = new Guacamole.StringReader(stream);
+                    r.ontext = function() {};
+                    r.onend = function() {};
+                    return;
+                }
+                var data = '';
+                var reader = new Guacamole.StringReader(stream);
+                reader.ontext = function(text) { data += text; };
+                reader.onend = function() {
+                    remoteClipboard = data;
+                    if (panelOpen && clipboardTextarea) clipboardTextarea.value = data;
+                    if (navigator.clipboard && navigator.clipboard.writeText && document.hasFocus()) {
+                        navigator.clipboard.writeText(data).then(function() {
+                            setClipboardStatus('Remote clipboard synced.');
+                        }).catch(function() {});
+                    }
+                };
+            };
+
+            // в”Ђв”Ђ Send clipboard to remote в”Ђв”Ђ
+            function sendClipboardToRemote(text) {
+                var stream = client.createClipboardStream('text/plain');
+                var writer = new Guacamole.StringWriter(stream);
+                for (var i = 0; i < text.length; i += 4096) {
+                    writer.sendText(text.substring(i, i + 4096));
+                }
+                writer.sendEnd();
+                setClipboardStatus('Sent to session (' + text.length + ' chars).');
+            }
+
+            // в”Ђв”Ђ Toggle panel в”Ђв”Ђ
+            function toggleClipboardPanel() {
+                panelOpen = !panelOpen;
+                if (panelOpen) {
+                    buildClipboardPanel();
+                    clipboardPanel.style.display = 'flex';
+                    clipboardTextarea.value = remoteClipboard;
+                    clipboardTextarea.focus();
+                    toggleTab.style.display = 'none';
+                    if (navigator.clipboard && navigator.clipboard.readText) {
+                        navigator.clipboard.readText().then(function(text) {
+                            if (text && text !== remoteClipboard) clipboardTextarea.value = text;
+                        }).catch(function() {});
+                    }
+                } else {
+                    if (clipboardPanel) clipboardPanel.style.display = 'none';
+                    toggleTab.style.display = '';
+                    displayEl.focus();
+                    keyboard.reset();
+                }
+                scaleDisplay();
+            }
+
+            // в”Ђв”Ђ Auto-sync clipboard on window focus в”Ђв”Ђ
+            window.addEventListener('focus', function() {
+                if (!panelOpen && navigator.clipboard && navigator.clipboard.readText) {
+                    navigator.clipboard.readText().then(function(text) {
+                        if (text && text !== remoteClipboard) {
+                            sendClipboardToRemote(text);
+                            remoteClipboard = text;
+                        }
+                    }).catch(function() {});
+                }
+            });
+
+            // в”Ђв”Ђ File Manager state в”Ђв”Ђ
+            var filesystem = null;
+            var filePanelOpen = false;
+            var filePanel = null;
+            var fileListEl = null;
+            var fileBreadcrumb = null;
+            var fileStatusEl = null;
+            var currentPath = '/';
+            var cachedListings = {}; // Cache directory listings from unsolicited body responses
+
+            // в”Ђв”Ђ Build file manager toggle tab (hidden until filesystem available) в”Ђв”Ђ
+            var fileTab = document.createElement('div');
+            fileTab.textContent = 'Files';
+            fileTab.title = 'Toggle file manager';
+            fileTab.style.cssText = 'display:none;position:fixed;left:-1px;top:calc(50% + 60px);transform:translateY(-50%);writing-mode:vertical-rl;background:var(--accent);color:var(--text-on-primary);padding:0.6em 0.3em;font-family:monospace;font-size:0.75em;cursor:pointer;z-index:3001;border-radius:0 4px 4px 0;opacity:0.6;letter-spacing:0.1em;font-weight:bold;';
+            fileTab.addEventListener('mouseenter', function() { fileTab.style.opacity = '1'; });
+            fileTab.addEventListener('mouseleave', function() { fileTab.style.opacity = '0.6'; });
+            fileTab.addEventListener('click', function() { toggleFilePanel(); });
+            document.body.appendChild(fileTab);
+
+            function buildFilePanel() {
+                if (filePanel) return;
+                filePanel = document.createElement('div');
+                filePanel.style.cssText = 'display:none;position:fixed;top:0;left:0;bottom:0;width:380px;background:var(--bg);border-right:2px solid var(--accent);z-index:3000;font-family:monospace;color:var(--text);flex-direction:column;';
+                filePanel.innerHTML =
+                    '<div style="display:flex;align-items:center;padding:0.8em 1em;border-bottom:1px solid var(--border);background:var(--surface);">' +
+                        '<h3 style="margin:0;flex:1;color:var(--accent);font-size:1.1em;">File Manager</h3>' +
+                        '<button id="fp-close" style="background:none;border:none;color:var(--text-dim);font-size:1.6em;cursor:pointer;font-family:monospace;padding:0 0.3em;">&times;</button>' +
+                    '</div>' +
+                    '<div id="fp-breadcrumb" style="padding:0.5em 1em;color:var(--text-muted);font-size:0.95em;border-bottom:1px solid var(--border);background:var(--input);word-break:break-all;"></div>' +
+                    '<div style="padding:0.5em 1em;display:flex;gap:0.5em;border-bottom:1px solid var(--border);">' +
+                        '<button id="fp-upload" style="padding:0.4em 0.8em;background:var(--accent);color:var(--bg);font-weight:bold;border:none;font-family:monospace;font-size:0.95em;border-radius:3px;cursor:pointer;">Upload</button>' +
+                        '<button id="fp-refresh" style="padding:0.4em 0.8em;background:var(--input);color:var(--accent);border:1px solid var(--border);font-family:monospace;font-size:0.95em;border-radius:3px;cursor:pointer;">Refresh</button>' +
+                    '</div>' +
+                    '<div id="fp-list" style="flex:1;overflow-y:auto;min-height:0;"></div>' +
+                    '<div id="fp-status" style="padding:0.5em 1em;color:var(--accent);font-size:0.9em;min-height:1.5em;border-top:1px solid var(--border);"></div>' +
+                    '<div style="padding:0.6em 1em;color:var(--text-dim);font-size:0.85em;border-top:1px solid var(--border);">Drag files here to upload. Files are temporary and will be deleted when the session ends.</div>';
+
+                document.body.appendChild(filePanel);
+                fileListEl = document.getElementById('fp-list');
+                fileBreadcrumb = document.getElementById('fp-breadcrumb');
+                fileStatusEl = document.getElementById('fp-status');
+
+                document.getElementById('fp-close').addEventListener('click', function() { toggleFilePanel(); });
+                document.getElementById('fp-refresh').addEventListener('click', function() { refreshDirectory(); });
+                document.getElementById('fp-upload').addEventListener('click', function() {
+                    var input = document.createElement('input');
+                    input.type = 'file';
+                    input.multiple = true;
+                    input.addEventListener('change', function() {
+                        for (var i = 0; i < input.files.length; i++) {
+                            uploadFile(input.files[i]);
+                        }
+                    });
+                    input.click();
+                });
+
+                // Drag and drop on file panel
+                filePanel.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+                filePanel.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    for (var i = 0; i < e.dataTransfer.files.length; i++) {
+                        uploadFile(e.dataTransfer.files[i]);
+                    }
+                });
+            }
+
+            function toggleFilePanel() {
+                filePanelOpen = !filePanelOpen;
+                if (filePanelOpen) {
+                    // Close clipboard panel if open
+                    if (panelOpen) toggleClipboardPanel();
+                    buildFilePanel();
+                    filePanel.style.display = 'flex';
+                    fileTab.style.display = 'none';
+                    browseDirectory(currentPath);
+                } else {
+                    if (filePanel) filePanel.style.display = 'none';
+                    fileTab.style.display = '';
+                    displayEl.focus();
+                    keyboard.reset();
+                }
+                scaleDisplay();
+            }
+
+            function setFileStatus(msg) {
+                if (!fileStatusEl) return;
+                fileStatusEl.textContent = msg;
+                setTimeout(function() {
+                    if (fileStatusEl && fileStatusEl.textContent === msg) fileStatusEl.textContent = '';
+                }, 4000);
+            }
+
+            function escapeHtml(s) {
+                var d = document.createElement('div');
+                d.textContent = s;
+                return d.innerHTML;
+            }
+
+            function escapeAttr(s) {
+                return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            }
+
+            function fetchDirectoryListing(path) {
+                if (!filesystem) return;
+                tracing_log('Requesting directory listing for: ' + path);
+                filesystem.requestInputStream(path, function(stream, mimetype) {
+                    tracing_log('Received body for ' + path + ': mimetype=' + mimetype);
+
+                    if (mimetype !== Guacamole.Object.STREAM_INDEX_MIMETYPE) {
+                        stream.sendAck('Unexpected mimetype', 0x0100);
+                        tracing_log('Unexpected mimetype for directory: ' + mimetype);
+                        return;
+                    }
+
+                    // Signal guacd we are ready to receive data (required for flow control)
+                    stream.sendAck('Ready', 0x0000);
+
+                    // Read the JSON listing using JSONReader (wraps StringReader).
+                    // Ack each blob via onprogress вЂ” guacd waits for ack before
+                    // sending next blob (same pattern as Apache Guacamole webapp).
+                    var reader = new Guacamole.JSONReader(stream);
+                    reader.onprogress = function() {
+                        stream.sendAck('Received', 0x0000);
+                    };
+                    reader.onend = function() {
+                        try {
+                            var listing = reader.getJSON();
+                            cachedListings[path] = listing;
+                            tracing_log('Cached listing for ' + path + ': ' + Object.keys(listing).length + ' entries');
+                            if (filePanelOpen && currentPath === path) {
+                                renderFileListing(listing, path);
+                            }
+                        } catch (e) {
+                            tracing_log('Failed to parse listing: ' + e);
+                            if (filePanelOpen && currentPath === path && fileListEl) {
+                                fileListEl.innerHTML = '<div style="padding:1em;color:#f88;">Error loading directory</div>';
+                            }
+                        }
+                    };
+                });
+            }
+
+            function browseDirectory(path) {
+                if (!filesystem) return;
+                currentPath = path;
+                if (fileBreadcrumb) {
+                    var parts = path.split('/').filter(function(p) { return p; });
+                    var html = '<span style="cursor:pointer;color:var(--accent);" data-path="/">/</span>';
+                    var built = '';
+                    for (var i = 0; i < parts.length; i++) {
+                        built += '/' + parts[i];
+                        html += ' <span style="cursor:pointer;color:var(--accent);" data-path="' + escapeAttr(built) + '/">' + escapeHtml(parts[i]) + '</span>/';
+                    }
+                    fileBreadcrumb.innerHTML = html;
+                    var spans = fileBreadcrumb.querySelectorAll('span[data-path]');
+                    for (var j = 0; j < spans.length; j++) {
+                        spans[j].addEventListener('click', function() {
+                            browseDirectory(this.getAttribute('data-path'));
+                        });
+                    }
+                }
+                // Check cache first
+                if (cachedListings[path]) {
+                    renderFileListing(cachedListings[path], path);
+                    return;
+                }
+
+                if (fileListEl) fileListEl.innerHTML = '<div style="padding:1em;color:var(--text-dim);">Loading...</div>';
+                fetchDirectoryListing(path);
+            }
+
+            function refreshDirectory() {
+                delete cachedListings[currentPath];
+                if (fileListEl) fileListEl.innerHTML = '<div style="padding:1em;color:var(--text-dim);">Loading...</div>';
+                fetchDirectoryListing(currentPath);
+            }
+
+            function renderFileListing(listing, parentPath) {
+                if (!fileListEl) return;
+                var entries = Object.keys(listing);
+                if (entries.length === 0) {
+                    fileListEl.innerHTML = '<div style="padding:1em;color:var(--text-dim);">Empty directory</div>';
+                    return;
+                }
+
+                // Determine prefix to strip from full stream names.
+                // guacd returns entries as full paths: "/subdir", "/file.txt"
+                var prefix = parentPath;
+                if (prefix.charAt(prefix.length - 1) !== '/') prefix += '/';
+
+                // Sort: directories first, then files
+                var dirs = [];
+                var files = [];
+                for (var i = 0; i < entries.length; i++) {
+                    var streamName = entries[i];
+                    var mime = listing[streamName];
+
+                    // Strip prefix to get display name
+                    var displayName = streamName;
+                    if (streamName.substring(0, prefix.length) === prefix) {
+                        displayName = streamName.substring(prefix.length);
+                    }
+                    // Skip empty names (the directory itself)
+                    if (!displayName || displayName === '/') continue;
+
+                    if (mime === Guacamole.Object.STREAM_INDEX_MIMETYPE) {
+                        dirs.push({ displayName: displayName, streamName: streamName });
+                    } else {
+                        files.push({ displayName: displayName, streamName: streamName, mimetype: mime });
+                    }
+                }
+                dirs.sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
+                files.sort(function(a, b) { return a.displayName.localeCompare(b.displayName); });
+
+                if (dirs.length === 0 && files.length === 0) {
+                    fileListEl.innerHTML = '<div style="padding:1em;color:var(--text-dim);">Empty directory</div>';
+                    return;
+                }
+
+                var html = '';
+                for (var d = 0; d < dirs.length; d++) {
+                    // For subdirectory browsing, use the streamName (full path)
+                    var dirBrowsePath = dirs[d].streamName;
+                    if (dirBrowsePath.charAt(dirBrowsePath.length - 1) !== '/') dirBrowsePath += '/';
+                    html += '<div class="fp-entry" data-path="' + escapeAttr(dirBrowsePath) + '" data-type="dir" style="padding:0.5em 1em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid var(--bg);">' +
+                        '<span style="color:var(--accent);">&#x1F4C1;</span>' +
+                        '<span style="flex:1;color:var(--text);font-size:0.95em;">' + escapeHtml(dirs[d].displayName) + '</span>' +
+                        '</div>';
+                }
+                for (var fi = 0; fi < files.length; fi++) {
+                    var filePath = files[fi].streamName;
+                    html += '<div class="fp-entry" data-path="' + escapeAttr(filePath) + '" data-type="file" style="padding:0.5em 1em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid var(--bg);">' +
+                        '<span style="color:var(--text-muted);">&#x1F4C4;</span>' +
+                        '<span style="flex:1;color:var(--text);font-size:0.95em;">' + escapeHtml(files[fi].displayName) + '</span>' +
+                        '<button class="fp-dl" data-path="' + escapeAttr(filePath) + '" data-name="' + escapeAttr(files[fi].displayName) + '" style="padding:0.3em 0.6em;background:var(--input);color:var(--accent);border:1px solid var(--border);font-family:monospace;font-size:0.85em;border-radius:3px;cursor:pointer;">Download</button>' +
+                        '</div>';
+                }
+                fileListEl.innerHTML = html;
+
+                // Bind click handlers
+                var entryEls = fileListEl.querySelectorAll('.fp-entry[data-type="dir"]');
+                for (var ei = 0; ei < entryEls.length; ei++) {
+                    entryEls[ei].addEventListener('click', function() {
+                        browseDirectory(this.getAttribute('data-path'));
+                    });
+                }
+                // Hover effect
+                var allEntries = fileListEl.querySelectorAll('.fp-entry');
+                for (var ae = 0; ae < allEntries.length; ae++) {
+                    allEntries[ae].addEventListener('mouseenter', function() { this.style.background = 'var(--surface)'; });
+                    allEntries[ae].addEventListener('mouseleave', function() { this.style.background = ''; });
+                }
+                // Download buttons
+                var dlBtns = fileListEl.querySelectorAll('.fp-dl');
+                for (var db = 0; db < dlBtns.length; db++) {
+                    dlBtns[db].addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        downloadFile(this.getAttribute('data-path'), this.getAttribute('data-name'));
+                    });
+                }
+            }
+
+            function downloadFile(path, filename) {
+                if (!filesystem) return;
+                setFileStatus('Downloading ' + filename + '...');
+                filesystem.requestInputStream(path, function(stream, mimetype) {
+                    // Signal guacd we are ready (required before first blob)
+                    stream.sendAck('Ready', 0x0000);
+                    var reader = new Guacamole.BlobReader(stream, mimetype || 'application/octet-stream');
+                    reader.onend = function() {
+                        var blob = reader.getBlob();
+                        var a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+                        setFileStatus('Downloaded ' + filename);
+                    };
+                    reader.onerror = function() {
+                        setFileStatus('Download failed: ' + filename);
+                    };
+                });
+            }
+
+            function uploadFile(file) {
+                if (!filesystem) return;
+                var destPath = currentPath + file.name;
+                setFileStatus('Uploading ' + file.name + '...');
+                var stream = filesystem.createOutputStream('application/octet-stream', destPath);
+                var writer = new Guacamole.BlobWriter(stream);
+                writer.oncomplete = function() {
+                    setFileStatus('Uploaded ' + file.name);
+                    // Refresh listing after brief delay
+                    setTimeout(function() { refreshDirectory(); }, 500);
+                };
+                writer.onerror = function() {
+                    setFileStatus('Upload failed: ' + file.name);
+                };
+                writer.sendBlob(file);
+            }
+
+            // в”Ђв”Ђ Filesystem handler (fires when drive/SFTP is available) в”Ђв”Ђ
+            client.onfilesystem = function(object, name) {
+                filesystem = object;
+                tracing_log('Filesystem available: ' + name);
+                // Show file manager tab
+                fileTab.style.display = '';
+
+                // Pre-fetch root listing so it's cached when user opens the panel.
+                // Uses requestInputStream with callback (standard Guacamole pattern)
+                // rather than overriding onbody, which bypasses the internal dispatch.
+                fetchDirectoryListing('/');
+            };
+
+            // в”Ђв”Ђ File download handler (server-initiated file transfer) в”Ђв”Ђ
+            client.onfile = function(stream, mimetype, filename) {
+                var reader = new Guacamole.BlobReader(stream, mimetype);
+                reader.onend = function() {
+                    var blob = reader.getBlob();
+                    var a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+                    setFileStatus('Received file: ' + filename);
+                };
+            };
+
+            function tracing_log(msg) {
+                if (typeof console !== 'undefined') console.log('[rustguac] ' + msg);
+            }
+
+            // Also support drag-drop on the display
+            displayEl.addEventListener('dragover', function(e) {
+                if (filesystem) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+            });
+            displayEl.addEventListener('drop', function(e) {
+                if (!filesystem) return;
+                e.preventDefault();
+                for (var i = 0; i < e.dataTransfer.files.length; i++) {
+                    uploadFile(e.dataTransfer.files[i]);
+                }
+            });
+
+            // в”Ђв”Ђ State changes в”Ђв”Ђ
+            // в”Ђв”Ђ Thumbnail capture (owner only, not shared viewers) в”Ђв”Ђ
+            var _thumbInterval = null;
+            function captureAndUploadThumbnail() {
+                try {
+                    var display = client.getDisplay();
+                    var canvas = display.flatten();
+                    if (!canvas || canvas.width === 0) return;
+                    // Scale down to 320px wide
+                    var thumb = document.createElement('canvas');
+                    thumb.width = 320;
+                    thumb.height = Math.round(320 * canvas.height / canvas.width) || 180;
+                    thumb.getContext('2d').drawImage(canvas, 0, 0, thumb.width, thumb.height);
+                    thumb.toBlob(function(blob) {
+                        if (!blob) return;
+                        var headers = {};
+                        if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+                        fetch('/api/sessions/' + sessionId + '/thumbnail', {
+                            method: 'PUT',
+                            headers: headers,
+                            credentials: 'same-origin',
+                            body: blob
+                        }).catch(function() {}); // fire and forget
+                    }, 'image/jpeg', 0.6);
+                } catch(e) { /* ignore capture errors */ }
+            }
+
+            client.onstatechange = function(state) {
+                switch (state) {
+                    case Guacamole.Client.State.CONNECTING: statusEl.textContent = 'Connecting...'; statusEl.className = ''; break;
+                    case Guacamole.Client.State.WAITING: statusEl.textContent = 'Waiting for server...'; statusEl.className = ''; break;
+                    case Guacamole.Client.State.CONNECTED:
+                        statusEl.textContent = 'Connected'; statusEl.className = 'connected';
+                        // Start thumbnail capture for session owner
+                        if (!shareToken && !_thumbInterval) {
+                            _thumbInterval = setInterval(captureAndUploadThumbnail, 10000);
+                            // First capture after 3s (let display render)
+                            setTimeout(captureAndUploadThumbnail, 3000);
+                        }
+                        break;
+                    case Guacamole.Client.State.DISCONNECTING:
+                        statusEl.textContent = 'Disconnecting...'; statusEl.className = '';
+                        // Final thumbnail capture before disconnect
+                        if (_thumbInterval) {
+                            clearInterval(_thumbInterval);
+                            _thumbInterval = null;
+                            captureAndUploadThumbnail();
+                        }
+                        break;
+                    case Guacamole.Client.State.DISCONNECTED:
+                        statusEl.textContent = 'Disconnected'; statusEl.className = '';
+                        if (_thumbInterval) { clearInterval(_thumbInterval); _thumbInterval = null; }
+                        document.getElementById('disconnected-overlay').className = 'visible';
+                        break;
+                }
+            };
+
+            client.onerror = function(status) {
+                statusEl.textContent = 'Error: ' + (status.message || 'Unknown error');
+                statusEl.className = '';
+                // Stop the 10s thumbnail uploader; the session is dead and
+                // each XHR would otherwise 404 against a cleaned-up id.
+                if (_thumbInterval) { clearInterval(_thumbInterval); _thumbInterval = null; }
+                document.getElementById('disconnected-title').textContent = 'Connection Error';
+                document.getElementById('disconnected-message').textContent = status.message || 'An error occurred.';
+                document.getElementById('disconnected-overlay').className = 'visible';
+            };
+
+            // Wire tunnel events back into the client. Upstream Guacamole's
+            // Client.js deliberately doesn't listen on tunnel.onerror /
+            // tunnel.onstatechange вЂ” the Apache webapp installs those
+            // handlers externally via AngularJS. Our lean client.html
+            // inherits Tunnel.js + Client.js from upstream but used to
+            // miss this glue, so when a mid-path middlebox silently
+            // dropped the WS and socket.onclose fired, the tunnel would
+            // transition to CLOSED, fire onerror into the void, and the
+            // Guacamole client would stay stuck in CONNECTED forever.
+            // Effect: the user saw a frozen tab, no "Session Ended"
+            // overlay, and the browser kept uploading thumbnails into
+            // 404 responses for hours. Forwarding tunnel events into the
+            // existing client.onerror closes that loop.
+            tunnel.onerror = function(status) {
+                if (typeof console !== 'undefined')
+                    console.log('[rustguac] tunnel error:',
+                                status && status.message,
+                                'code=' + (status && status.code));
+                if (client.onerror) client.onerror(status || {
+                    code: 519,
+                    message: 'Connection lost'
+                });
+            };
+            tunnel.onstatechange = function(state) {
+                if (state === Guacamole.Tunnel.State.CLOSED) {
+                    if (typeof console !== 'undefined')
+                        console.log('[rustguac] tunnel closed');
+                    if (client.onerror) client.onerror({
+                        code: 519,
+                        message: 'Connection lost'
+                    });
+                } else if (state === Guacamole.Tunnel.State.UNSTABLE) {
+                    if (typeof console !== 'undefined')
+                        console.log('[rustguac] tunnel unstable');
+                    statusEl.textContent = 'Connection unstable...';
+                }
+            };
+
+            // Disconnected overlay buttons
+            document.getElementById('btn-close-session').addEventListener('click', function() {
+                window.close();
+                // window.close() may be blocked if not opened by script вЂ” navigate away as fallback
+                window.location.href = '/';
+            });
+            // Reconnect launches a fresh session against the same Connections
+            // entry, then navigates to it. Reloading the dead session URL
+            // would just re-trigger the overlay because the original session
+            // transitioned to Completed the moment the WebSocket closed.
+            document.getElementById('btn-reconnect').addEventListener('click', function() {
+                var btn = this;
+                btn.disabled = true;
+                btn.textContent = 'Reconnecting...';
+
+                // Share-token / shadow viewers can't mint a new session.
+                // Reload keeps current behaviour (it will fail the same way,
+                // but they have no other recourse from this page).
+                if (shareToken) {
+                    window.location.reload();
+                    return;
+                }
+
+                // Ad-hoc sessions have no entry to relaunch from. Send the
+                // user back to Connections so they can pick where to go.
+                if (!relaunchInfo) {
+                    window.location.href = '/connections';
+                    return;
+                }
+
+                // Composite key is "scope/folder/entry". Folder may itself
+                // contain slashes; entry names cannot (validated server-side
+                // in vault.rs validate_name), so first/last segment splits
+                // cleanly recover scope and entry.
+                var key = relaunchInfo.entry_key;
+                var firstSlash = key.indexOf('/');
+                var lastSlash = key.lastIndexOf('/');
+                if (firstSlash < 0 || lastSlash <= firstSlash) {
+                    window.location.href = '/connections';
+                    return;
+                }
+                var scope = key.substring(0, firstSlash);
+                var folder = relaunchInfo.folder;
+                var entry = key.substring(lastSlash + 1);
+
+                var headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+
+                var body = {
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    dpi: Math.round((window.devicePixelRatio || 1) * 96)
+                };
+
+                var url = '/api/addressbook/folders/' + encodeURIComponent(scope)
+                    + '/' + encodeURIComponent(folder)
+                    + '/entries/' + encodeURIComponent(entry) + '/connect';
+
+                fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    credentials: 'same-origin',
+                    body: JSON.stringify(body)
+                })
+                .then(function(res) {
+                    if (!res.ok) {
+                        // 412 missing creds, 403 forbidden, 404 entry gone:
+                        // none of those are fixable from this page. Punt to
+                        // Connections where the user can fill in what's
+                        // missing or pick a different entry.
+                        window.location.href = '/connections';
+                        return;
+                    }
+                    return res.json().then(function(data) {
+                        if (data && data.client_url) {
+                            var dest = data.client_url;
+                            if (relaunchInfo.display_name) {
+                                dest += '?name=' + encodeURIComponent(relaunchInfo.display_name);
+                            }
+                            window.location.href = dest;
+                        } else {
+                            window.location.href = '/connections';
+                        }
+                    });
+                })
+                .catch(function() {
+                    window.location.href = '/connections';
+                });
+            });
+
+            // в”Ђв”Ђ Keyboard вЂ” attached to display so it doesn't steal from textarea в”Ђв”Ђ
+            displayEl.tabIndex = 0;
+            displayEl.style.outline = 'none';
+            displayEl.focus();
+            var keyboard = new Guacamole.Keyboard(displayEl);
+            var lastToggleTime = 0;
+
+            // Ctrl+Alt+Shift toggle on document (capture phase) вЂ” works everywhere
+            document.addEventListener('keydown', function(e) {
+                if (e.ctrlKey && e.altKey && e.shiftKey) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    var now = Date.now();
+                    if (now - lastToggleTime < 500) return; // debounce
+                    lastToggleTime = now;
+                    toggleClipboardPanel();
+                }
+            }, true);
+
+            // в”Ђв”Ђ Ctrl+V clipboard sync в”Ђв”Ђ
+            // Intercept Ctrl+V (capture on document, fires before Guacamole's
+            // handler on displayEl). Reads browser clipboard, syncs to remote,
+            // then sends key events. Firefox shows a one-time permission popup.
+            var _pasteIntercepted = false;
+            document.addEventListener('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V') && !e.altKey && !e.repeat && !panelOpen) {
+                    if (navigator.clipboard && navigator.clipboard.readText) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        _pasteIntercepted = true;
+                        navigator.clipboard.readText().then(function(text) {
+                            if (text && text !== remoteClipboard) {
+                                sendClipboardToRemote(text);
+                                remoteClipboard = text;
+                            }
+                        }).catch(function() {}).finally(function() {
+                            // Send Ctrl+V key events to remote after clipboard sync
+                            client.sendKeyEvent(1, 0x76); // v down
+                            client.sendKeyEvent(0, 0x76); // v up
+                        });
+                    }
+                }
+            }, true);
+            document.addEventListener('keyup', function(e) {
+                if (_pasteIntercepted && (e.key === 'v' || e.key === 'V')) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    _pasteIntercepted = false;
+                }
+            }, true);
+
+            keyboard.onkeydown = function(keysym) {
+                client.sendKeyEvent(1, keysym);
+            };
+            keyboard.onkeyup = function(keysym) {
+                client.sendKeyEvent(0, keysym);
+            };
+
+            // Mouse input
+            var mouse = new Guacamole.Mouse(client.getDisplay().getElement());
+            mouse.onEach(['mousedown', 'mousemove', 'mouseup'], function(e) {
+                client.sendMouseState(e.state, true);
+            });
+
+            // Auto-scale display
+            function scaleDisplay() {
+                var display = client.getDisplay();
+                var dw = display.getWidth();
+                var dh = display.getHeight();
+                var anyPanelOpen = panelOpen || filePanelOpen;
+                if (dw > 0 && dh > 0) {
+                    var aw = anyPanelOpen ? window.innerWidth - 380 : window.innerWidth;
+                    display.scale(Math.min(aw / dw, window.innerHeight / dh));
+                }
+                // Offset display to the right when left panel is open
+                displayEl.style.marginLeft = anyPanelOpen ? '380px' : '0';
+            }
+
+            client.getDisplay().onresize = function() { scaleDisplay(); };
+            var resizeTimer = null;
+            window.addEventListener('resize', function() {
+                scaleDisplay();
+                // Debounce sendSize вЂ” RDP display updates are expensive
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(function() {
+                    var anyPanelOpen = panelOpen || filePanelOpen;
+                    var sw = anyPanelOpen ? window.innerWidth - 380 : window.innerWidth;
+                    var sh = window.innerHeight;
+                    client.sendSize(sw, sh);
+                }, 250);
+            });
+
+            var connectData = shareToken ? 'token=' + encodeURIComponent(shareToken) : '';
+            client.connect(connectData);
+        }

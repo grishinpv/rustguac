@@ -1,0 +1,8 @@
+@import 'tailwindcss';
+
+/* Page-specific utilities mirroring legacy inline styles */
+@layer utilities {
+  .modal-overlay.active {
+    display: flex;
+  }
+}

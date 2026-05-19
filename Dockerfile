@@ -69,8 +69,24 @@ RUN /build/guacamole-server/configure \
     && cp /opt/rustguac/lib/libguac*.so* /opt/rustguac/lib/freerdp3/ \
     && cp /usr/lib/x86_64-linux-gnu/freerdp3/libguac*.so* /opt/rustguac/lib/freerdp3/ 2>/dev/null || true
 
+
+
 # ---------------------------------------------------------------------------
-# Stage 2: Build rustguac
+# Stage 2.1: Build React frontend
+# ---------------------------------------------------------------------------
+    FROM node:22-bookworm-slim AS frontend-builder
+
+    WORKDIR /build
+    COPY frontend/package.json frontend/package-lock.json ./frontend/
+    RUN cd frontend && npm ci
+    
+    COPY frontend ./frontend
+    RUN cd frontend && node node_modules/vite/bin/vite.js build --outDir ../web --emptyOutDir
+    
+
+    
+# ---------------------------------------------------------------------------
+# Stage 2.2: Build rustguac
 # ---------------------------------------------------------------------------
 FROM rust:1-bookworm AS rust-builder
 
