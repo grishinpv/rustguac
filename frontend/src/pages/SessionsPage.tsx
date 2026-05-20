@@ -407,7 +407,7 @@ export function SessionsPage() {
         <table className="w-full border-collapse border border-[var(--border)]">
           <thead>
             <tr>
-              {['ID', 'Type', 'Host', 'User', 'Owner', 'Status', 'Viewers', '', ''].map((h) => (
+              {['ID', 'Type', 'Host', 'User', 'Owner', 'Status', 'Viewers', 'Actions'].map((h) => (
                 <th key={h} className="border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left text-sm uppercase tracking-wider text-[var(--text-muted)]">
                   {h}
                 </th>
@@ -446,10 +446,11 @@ function SessionRow({
   const [shadowBusy, setShadowBusy] = useState(false)
   const shortId = s.session_id.substring(0, 8)
   const hostCol = s.session_type === 'web' ? s.url || '' : s.hostname
-  const isActive = s.status === 'active'
+  const isRunning = s.status === 'active' || s.status === 'pending'
   const isOwn = !!(myName && s.created_by === myName)
-  const canShadow = isActive && !isOwn && myRole === 'admin'
+  const canShadow = isRunning && !isOwn && myRole === 'admin'
   const canDelete = isOwn || myRole === 'admin'
+  const canConnect = isRunning && !!s.client_url
 
   async function onShadow(e: React.MouseEvent) {
     e.preventDefault()
@@ -464,12 +465,22 @@ function SessionRow({
     }
   }
 
+  function onTerminateClick() {
+    const label = s.entry_display_name || s.hostname || s.url || shortId
+    if (isRunning) {
+      if (!confirm(`Terminate running session (${label})?`)) return
+    } else if (!confirm(`Remove session record (${label})?`)) {
+      return
+    }
+    void deleteSession(s.session_id).then(onRefresh)
+  }
+
   return (
     <tr className={!isOwn ? 'opacity-90' : ''}>
       <td className="border-b border-[var(--border)] px-4 py-3">
-        <a href={s.client_url} target="_blank" rel="noreferrer" className="text-sm text-[var(--accent)]">
+        <span className="font-mono text-sm text-[var(--text-muted)]" title={s.session_id}>
           {shortId}
-        </a>
+        </span>
       </td>
       <td className="border-b border-[var(--border)] px-4 py-3">{s.session_type}</td>
       <td className="border-b border-[var(--border)] px-4 py-3">{hostCol}</td>
@@ -478,33 +489,28 @@ function SessionRow({
       <td className={`border-b border-[var(--border)] px-4 py-3 status-${s.status}`}>{s.status}</td>
       <td className="border-b border-[var(--border)] px-4 py-3">{String(s.active_connections)}</td>
       <td className="border-b border-[var(--border)] px-4 py-3">
-        {isActive && isOwn ? (
-          <a href={s.client_url} target="_blank" rel="noreferrer" className="btn-small">
-            open
-          </a>
-        ) : canShadow ? (
-          <a
-            href="#"
-            className={`text-sm font-bold ${shadowBusy ? 'pointer-events-none opacity-60' : ''}`}
-            style={{ color: 'var(--status-pending)' }}
-            onClick={onShadow}
-          >
-            {shadowBusy ? 'minting...' : 'shadow'}
-          </a>
-        ) : null}
-      </td>
-      <td className="border-b border-[var(--border)] px-4 py-3">
-        {canDelete ? (
-          <button
-            type="button"
-            className="btn-small"
-            onClick={() => {
-              void deleteSession(s.session_id).then(onRefresh)
-            }}
-          >
-            delete
-          </button>
-        ) : null}
+        <div className="flex flex-wrap gap-1">
+          {canConnect ? (
+            <button type="button" className="btn-small" onClick={() => window.open(s.client_url, '_blank')}>
+              Connect
+            </button>
+          ) : null}
+          {canShadow ? (
+            <button
+              type="button"
+              className={`btn-small ${shadowBusy ? 'pointer-events-none opacity-60' : ''}`}
+              style={{ color: 'var(--status-pending)' }}
+              onClick={onShadow}
+            >
+              {shadowBusy ? 'minting…' : 'Shadow'}
+            </button>
+          ) : null}
+          {canDelete ? (
+            <button type="button" className="btn-small" onClick={onTerminateClick}>
+              {isRunning ? 'Terminate' : 'Remove'}
+            </button>
+          ) : null}
+        </div>
       </td>
     </tr>
   )

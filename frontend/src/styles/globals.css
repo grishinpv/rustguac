@@ -179,6 +179,12 @@
   .btn-delete {
     @apply border-destructive/30 text-destructive hover:bg-destructive/10;
   }
+  .btn-danger-solid {
+    @apply inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm transition-opacity hover:opacity-90;
+    background: var(--status-error, #dc2626);
+    border-color: var(--status-error, #dc2626);
+    color: #fff;
+  }
 
   .modal-overlay.active {
     @apply flex;
@@ -240,4 +246,17 @@
   --text-muted: #a1a1aa;
   --border: #27272a;
   --text-dim: #71717a;
+}
+
+@keyframes rustguac-entry-panel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.rustguac-entry-panel {
+  animation: rustguac-entry-panel-in 0.22s ease-out;
 }

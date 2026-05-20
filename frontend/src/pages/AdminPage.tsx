@@ -68,121 +68,39 @@ export function AdminPage() {
 
   if (!me || me.role !== 'admin') return <div className="p-8">Loading…</div>
 
+  const sectionClass = 'rounded border p-5 md:p-6'
+  const sectionStyle = { borderColor: 'var(--border)', background: 'var(--surface)' } as const
+  const sectionTitleClass = 'mb-1 mt-0 text-base font-bold uppercase tracking-wider text-[var(--accent)]'
+  const sectionLeadClass = 'mb-4 max-w-3xl text-sm leading-relaxed'
+  const subsectionTitleClass = 'mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-[var(--text-muted)]'
+
   return (
-    <div>
+    <div className="admin-page space-y-8 pb-10">
       {err ? (
         <div className="mb-3 text-sm" style={{ color: 'var(--primary)' }}>
           {err}
         </div>
       ) : null}
-      <h2>System Status</h2>
-      <StatusGrid status={status} />
-      <h2 className="mt-10">Users</h2>
-      <table className="mt-3 w-full border-collapse border text-sm" style={{ borderColor: 'var(--border)' }}>
-        <thead>
-          <tr>
-            {['Email', 'Name', 'Role', 'Groups', 'Status', 'Last Login', ''].map((h) => (
-              <th key={h} className="border-b p-2 text-left" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <UserRow key={u.email} u={u} onErr={setErr} onRefresh={() => void refetchUsers()} />
-          ))}
-        </tbody>
-      </table>
 
-      <h2 className="mt-10">Group-to-Role Mappings</h2>
-      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        OIDC groups are matched to roles on every login. The highest matching role wins.
-      </p>
-      <table className="mt-2 w-full border-collapse border text-sm" style={{ borderColor: 'var(--border)' }}>
-        <thead>
-          <tr>
-            {['Group', 'Role', 'Created', ''].map((h) => (
-              <th key={h} className="border-b p-2 text-left" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {mappings.map((m) => (
-            <tr key={m.id}>
-              <td className="border-b p-2">{m.oidc_group}</td>
-              <td className="border-b p-2">
-                <select
-                  className="rounded border px-1"
-                  style={{ borderColor: 'var(--border)', background: 'var(--input)' }}
-                  defaultValue={m.role}
-                  onChange={(e) => {
-                    void updateGroupMapping(m.id, m.oidc_group, e.target.value).catch((er) => setErr(getErrorMessage(er)))
-                  }}
-                >
-                  {(['viewer', 'operator', 'poweruser', 'admin'] as const).map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="border-b p-2">{m.created_at || ''}</td>
-              <td className="border-b p-2">
-                <button
-                  type="button"
-                  className="btn-small"
-                  onClick={() => void deleteGroupMapping(m.id).then(() => void refetchMap())}
-                >
-                  delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="add-form mt-3 flex flex-wrap gap-2">
-        <input className="rounded border px-2 py-1 font-mono" style={{ borderColor: 'var(--border)', background: 'var(--input)' }} placeholder="OIDC group" value={newGroup} onChange={(e) => setNewGroup(e.target.value)} />
-        <select className="rounded border px-2 py-1" style={{ borderColor: 'var(--border)', background: 'var(--input)' }} value={newRole} onChange={(e) => setNewRole(e.target.value as Role)}>
-          {(['viewer', 'operator', 'poweruser', 'admin'] as const).map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={() => {
-            const g = newGroup.trim()
-            if (!g) {
-              setErr('Group name is required')
-              return
-            }
-            void createGroupMapping(g, newRole)
-              .then(() => {
-                setNewGroup('')
-                void refetchMap()
-              })
-              .catch((e) => setErr(getErrorMessage(e)))
-          }}
-        >
-          Add Mapping
-        </button>
-      </div>
+      <section className={sectionClass} style={sectionStyle}>
+        <h2 className={sectionTitleClass}>System overview</h2>
+        <p className={sectionLeadClass} style={{ color: 'var(--text-muted)' }}>
+          Live health snapshot: version, sessions, users, recordings, disk, Vault connectivity, and enabled product features.
+        </p>
+        <StatusGrid status={status} />
+      </section>
 
-      <h2 className="mt-10">User API Tokens</h2>
-      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Tokens issued to OIDC users for API access.
-      </p>
-      {!allTok.length ? <p className="text-sm">No user tokens.</p> : null}
-      {allTok.length ? (
+      <section className={sectionClass} style={sectionStyle}>
+        <h2 className={sectionTitleClass}>Identity &amp; access</h2>
+        <p className={sectionLeadClass} style={{ color: 'var(--text-muted)' }}>
+          Manage who can sign in (OIDC users), their effective role, and how IdP group membership maps to application roles on each login.
+        </p>
+
+        <h3 className={subsectionTitleClass}>Users</h3>
         <table className="mt-2 w-full border-collapse border text-sm" style={{ borderColor: 'var(--border)' }}>
           <thead>
             <tr>
-              {['User', 'Name', 'Max Role', 'Expires', 'Created', 'Last Used', 'Status', ''].map((h) => (
+              {['Email', 'Name', 'Role', 'Groups', 'Status', 'Last Login', ''].map((h) => (
                 <th key={h} className="border-b p-2 text-left" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
                   {h}
                 </th>
@@ -190,111 +108,252 @@ export function AdminPage() {
             </tr>
           </thead>
           <tbody>
-            {allTok.map((t) => (
-              <tr key={t.id}>
-                <td className="border-b p-2">{t.email}</td>
-                <td className="border-b p-2">{t.name}</td>
-                <td className="border-b p-2">{t.max_role || 'none'}</td>
-                <td className="border-b p-2">{t.expires_at ? t.expires_at.substring(0, 10) : 'never'}</td>
-                <td className="border-b p-2">{t.created_at ? t.created_at.substring(0, 10) : ''}</td>
-                <td className="border-b p-2">{t.last_used_at || 'never'}</td>
-                <td className="border-b p-2">{t.disabled ? 'disabled' : 'active'}</td>
+            {users.map((u) => (
+              <UserRow key={u.email} u={u} onErr={setErr} onRefresh={() => void refetchUsers()} />
+            ))}
+          </tbody>
+        </table>
+
+        <h3 className={subsectionTitleClass}>Group-to-role mappings</h3>
+        <p className="mb-3 text-sm" style={{ color: 'var(--text-muted)' }}>
+          OIDC groups are matched to roles on every login. The highest matching role wins.
+        </p>
+        <table className="mt-2 w-full border-collapse border text-sm" style={{ borderColor: 'var(--border)' }}>
+          <thead>
+            <tr>
+              {['Group', 'Role', 'Created', ''].map((h) => (
+                <th key={h} className="border-b p-2 text-left" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {mappings.map((m) => (
+              <tr key={m.id}>
+                <td className="border-b p-2">{m.oidc_group}</td>
                 <td className="border-b p-2">
-                  <button
-                    type="button"
-                    className="btn-small"
-                    onClick={() => {
-                      if (!confirm(`Revoke "${t.name}" for ${t.email}?`)) return
-                      void revokeAdminToken(t.id).then(() => {
-                        void refetchTok()
-                        void refetchAudit()
-                      })
+                  <select
+                    className="rounded border px-1"
+                    style={{ borderColor: 'var(--border)', background: 'var(--input)' }}
+                    defaultValue={m.role}
+                    onChange={(e) => {
+                      void updateGroupMapping(m.id, m.oidc_group, e.target.value).catch((er) => setErr(getErrorMessage(er)))
                     }}
                   >
-                    revoke
+                    {(['viewer', 'operator', 'poweruser', 'admin'] as const).map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="border-b p-2">{m.created_at || ''}</td>
+                <td className="border-b p-2">
+                  <button type="button" className="btn-small" onClick={() => void deleteGroupMapping(m.id).then(() => void refetchMap())}>
+                    delete
                   </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      ) : null}
-
-      <h3 className="mt-6 text-lg">Create Token for User</h3>
-      <div className="add-form mt-2 flex flex-wrap gap-2">
-        <input className="rounded border px-2 py-1" style={{ width: 200, borderColor: 'var(--border)', background: 'var(--input)' }} placeholder="user@example.com" value={tokEmail} onChange={(e) => setTokEmail(e.target.value)} />
-        <input className="rounded border px-2 py-1" placeholder="Token name" value={tokName} onChange={(e) => setTokName(e.target.value)} />
-        <select className="rounded border px-2 py-1" style={{ borderColor: 'var(--border)', background: 'var(--input)' }} value={tokMax} onChange={(e) => setTokMax(e.target.value)}>
-          <option value="">No role cap</option>
-          {(['viewer', 'operator', 'poweruser', 'admin'] as const).map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        <input type="date" className="rounded border px-2 py-1" style={{ borderColor: 'var(--border)', background: 'var(--input)' }} value={tokExp} onChange={(e) => setTokExp(e.target.value)} />
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={() => {
-            if (!tokEmail.trim() || !tokName.trim()) {
-              setErr('Email and token name required')
-              return
-            }
-            const body: Parameters<typeof createAdminToken>[0] = { email: tokEmail.trim(), name: tokName.trim() }
-            if (tokMax) body.max_role = tokMax
-            if (tokExp) body.expires_at = `${tokExp}T23:59:59Z`
-            void createAdminToken(body)
-              .then((d) => {
-                setTokReveal(d.token)
-                setTokEmail('')
-                setTokName('')
-                setTokMax('')
-                setTokExp('')
-                void refetchTok()
-                void refetchAudit()
-              })
-              .catch((e) => setErr(getErrorMessage(e)))
-          }}
-        >
-          Create
-        </button>
-      </div>
-      {tokReveal ? (
-        <div className="token-reveal mt-3 rounded border p-4" style={{ borderColor: 'var(--border)' }}>
-          <strong>Token:</strong> <code className="break-all">{tokReveal}</code>
-          <button type="button" className="btn-small ml-2" onClick={() => void navigator.clipboard.writeText(tokReveal)}>
-            copy
-          </button>
-          <button type="button" className="btn-small ml-2" onClick={() => setTokReveal(null)}>
-            dismiss
+        <div className="add-form mt-3 flex flex-wrap gap-2">
+          <input
+            className="rounded border px-2 py-1 font-mono"
+            style={{ borderColor: 'var(--border)', background: 'var(--input)' }}
+            placeholder="OIDC group"
+            value={newGroup}
+            onChange={(e) => setNewGroup(e.target.value)}
+          />
+          <select
+            className="rounded border px-2 py-1"
+            style={{ borderColor: 'var(--border)', background: 'var(--input)' }}
+            value={newRole}
+            onChange={(e) => setNewRole(e.target.value as Role)}
+          >
+            {(['viewer', 'operator', 'poweruser', 'admin'] as const).map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => {
+              const g = newGroup.trim()
+              if (!g) {
+                setErr('Group name is required')
+                return
+              }
+              void createGroupMapping(g, newRole)
+                .then(() => {
+                  setNewGroup('')
+                  void refetchMap()
+                })
+                .catch((e) => setErr(getErrorMessage(e)))
+            }}
+          >
+            Add Mapping
           </button>
         </div>
-      ) : null}
+      </section>
 
-      <h2 className="mt-10">Token Audit Log</h2>
-      <div className="mb-2 flex gap-2">
-        <input className="rounded border px-2 py-1" style={{ width: 200, borderColor: 'var(--border)', background: 'var(--input)' }} placeholder="Filter by email" value={auditEmail} onChange={(e) => setAuditEmail(e.target.value)} />
-        <button type="button" className="btn-primary px-3 py-1 text-sm" onClick={() => void refetchAudit()}>
-          Filter
-        </button>
-      </div>
-      <AuditTable rows={audit} cols={['created_at', 'user_email', 'token_name', 'action', 'ip_addr', 'details']} />
+      <section className={sectionClass} style={sectionStyle}>
+        <h2 className={sectionTitleClass}>API tokens</h2>
+        <p className={sectionLeadClass} style={{ color: 'var(--text-muted)' }}>
+          Long-lived bearer tokens for programmatic access. List and revoke issued tokens, or mint a new token for a user (shown once after creation).
+        </p>
 
-      <h2 className="mt-10">Connections Audit Log</h2>
-      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Destructive and mutating address book actions (metadata only).
-      </p>
-      <div className="mb-2 flex gap-2">
-        <input className="rounded border px-2 py-1" style={{ width: 200, borderColor: 'var(--border)', background: 'var(--input)' }} placeholder="Filter by email" value={abAuditEmail} onChange={(e) => setAbAuditEmail(e.target.value)} />
-        <button type="button" className="btn-primary px-3 py-1 text-sm" onClick={() => void refetchAbAudit()}>
-          Filter
-        </button>
-      </div>
-      <AuditTable
-        rows={abAudit}
-        cols={['created_at', 'user_email', 'action', 'scope', 'folder_path', 'entry_name', 'ip_addr', 'details']}
-      />
+        <h3 className={`${subsectionTitleClass} mt-0`}>Issued tokens</h3>
+        {!allTok.length ? <p className="text-sm">No user tokens.</p> : null}
+        {allTok.length ? (
+          <table className="mt-2 w-full border-collapse border text-sm" style={{ borderColor: 'var(--border)' }}>
+            <thead>
+              <tr>
+                {['User', 'Name', 'Max Role', 'Expires', 'Created', 'Last Used', 'Status', ''].map((h) => (
+                  <th key={h} className="border-b p-2 text-left" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {allTok.map((t) => (
+                <tr key={t.id}>
+                  <td className="border-b p-2">{t.email}</td>
+                  <td className="border-b p-2">{t.name}</td>
+                  <td className="border-b p-2">{t.max_role || 'none'}</td>
+                  <td className="border-b p-2">{t.expires_at ? t.expires_at.substring(0, 10) : 'never'}</td>
+                  <td className="border-b p-2">{t.created_at ? t.created_at.substring(0, 10) : ''}</td>
+                  <td className="border-b p-2">{t.last_used_at || 'never'}</td>
+                  <td className="border-b p-2">{t.disabled ? 'disabled' : 'active'}</td>
+                  <td className="border-b p-2">
+                    <button
+                      type="button"
+                      className="btn-small"
+                      onClick={() => {
+                        if (!confirm(`Revoke "${t.name}" for ${t.email}?`)) return
+                        void revokeAdminToken(t.id).then(() => {
+                          void refetchTok()
+                          void refetchAudit()
+                        })
+                      }}
+                    >
+                      revoke
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+
+        <h3 className={subsectionTitleClass}>Create token for user</h3>
+        <div className="add-form mt-2 flex flex-wrap gap-2">
+          <input
+            className="rounded border px-2 py-1"
+            style={{ width: 200, borderColor: 'var(--border)', background: 'var(--input)' }}
+            placeholder="user@example.com"
+            value={tokEmail}
+            onChange={(e) => setTokEmail(e.target.value)}
+          />
+          <input className="rounded border px-2 py-1" placeholder="Token name" value={tokName} onChange={(e) => setTokName(e.target.value)} />
+          <select className="rounded border px-2 py-1" style={{ borderColor: 'var(--border)', background: 'var(--input)' }} value={tokMax} onChange={(e) => setTokMax(e.target.value)}>
+            <option value="">No role cap</option>
+            {(['viewer', 'operator', 'poweruser', 'admin'] as const).map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <input
+            type="date"
+            className="rounded border px-2 py-1"
+            style={{ borderColor: 'var(--border)', background: 'var(--input)' }}
+            value={tokExp}
+            onChange={(e) => setTokExp(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => {
+              if (!tokEmail.trim() || !tokName.trim()) {
+                setErr('Email and token name required')
+                return
+              }
+              const body: Parameters<typeof createAdminToken>[0] = { email: tokEmail.trim(), name: tokName.trim() }
+              if (tokMax) body.max_role = tokMax
+              if (tokExp) body.expires_at = `${tokExp}T23:59:59Z`
+              void createAdminToken(body)
+                .then((d) => {
+                  setTokReveal(d.token)
+                  setTokEmail('')
+                  setTokName('')
+                  setTokMax('')
+                  setTokExp('')
+                  void refetchTok()
+                  void refetchAudit()
+                })
+                .catch((e) => setErr(getErrorMessage(e)))
+            }}
+          >
+            Create
+          </button>
+        </div>
+        {tokReveal ? (
+          <div className="token-reveal mt-3 rounded border p-4" style={{ borderColor: 'var(--border)' }}>
+            <strong>Token:</strong> <code className="break-all">{tokReveal}</code>
+            <button type="button" className="btn-small ml-2" onClick={() => void navigator.clipboard.writeText(tokReveal)}>
+              copy
+            </button>
+            <button type="button" className="btn-small ml-2" onClick={() => setTokReveal(null)}>
+              dismiss
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      <section className={sectionClass} style={sectionStyle}>
+        <h2 className={sectionTitleClass}>Audit logs</h2>
+        <p className={sectionLeadClass} style={{ color: 'var(--text-muted)' }}>
+          Token usage events and mutating address book actions (metadata only), filterable by user email.
+        </p>
+
+        <h3 className={`${subsectionTitleClass} mt-0`}>Token audit</h3>
+        <div className="mb-2 flex gap-2">
+          <input
+            className="rounded border px-2 py-1"
+            style={{ width: 200, borderColor: 'var(--border)', background: 'var(--input)' }}
+            placeholder="Filter by email"
+            value={auditEmail}
+            onChange={(e) => setAuditEmail(e.target.value)}
+          />
+          <button type="button" className="btn-primary px-3 py-1 text-sm" onClick={() => void refetchAudit()}>
+            Filter
+          </button>
+        </div>
+        <AuditTable rows={audit} cols={['created_at', 'user_email', 'token_name', 'action', 'ip_addr', 'details']} />
+
+        <h3 className={subsectionTitleClass}>Connections (address book) audit</h3>
+        <p className="mb-2 text-sm" style={{ color: 'var(--text-muted)' }}>
+          Destructive and mutating address book actions (metadata only).
+        </p>
+        <div className="mb-2 flex gap-2">
+          <input
+            className="rounded border px-2 py-1"
+            style={{ width: 200, borderColor: 'var(--border)', background: 'var(--input)' }}
+            placeholder="Filter by email"
+            value={abAuditEmail}
+            onChange={(e) => setAbAuditEmail(e.target.value)}
+          />
+          <button type="button" className="btn-primary px-3 py-1 text-sm" onClick={() => void refetchAbAudit()}>
+            Filter
+          </button>
+        </div>
+        <AuditTable rows={abAudit} cols={['created_at', 'user_email', 'action', 'scope', 'folder_path', 'entry_name', 'ip_addr', 'details']} />
+      </section>
     </div>
   )
 }

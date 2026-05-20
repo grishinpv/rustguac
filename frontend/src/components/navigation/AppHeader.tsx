@@ -6,6 +6,7 @@ import {
   Circle,
   Command,
   LogOut,
+  Menu,
   MonitorPlay,
   Moon,
   Search,
@@ -38,6 +39,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { hasRole } from '@/lib/roles'
 import type { Role } from '@/types/api'
+import { useDashboardShell } from '@/components/layouts/dashboard-shell-context'
 
 const pathTitles: Record<string, string> = {
   '/connections': 'Connections',
@@ -70,6 +72,7 @@ export function AppHeader({
   const { data: auth } = useQuery<AuthStatus>({ queryKey: ['auth-status'], queryFn: fetchAuthStatus })
   const { appearance, setAppearance } = useAppearance()
   const [cmdOpen, setCmdOpen] = useState(false)
+  const { openMobileNav } = useDashboardShell()
 
   const showSessions = hasRole(me.role as Role, 'poweruser') || !!apiKey
 
@@ -112,7 +115,18 @@ export function AppHeader({
 
   return (
     <>
-      <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border/80 bg-background/80 px-4 backdrop-blur-md lg:px-6">
+      <header className="sticky top-0 z-40 flex min-h-14 shrink-0 items-center gap-2 border-b border-border/80 bg-background/80 px-3 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md sm:gap-3 sm:px-4 lg:px-6">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0 text-muted-foreground lg:hidden"
+          onClick={() => openMobileNav()}
+          aria-label="Open menu"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <nav className="flex items-center gap-1 text-[11px] text-muted-foreground" aria-label="Breadcrumb">
             {crumbs.map((c, i) => (
@@ -139,6 +153,17 @@ export function AppHeader({
             </Badge>
           </div>
         </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0 border-dashed text-muted-foreground md:hidden"
+          onClick={() => setCmdOpen(true)}
+          aria-label="Search connections"
+        >
+          <Search className="h-3.5 w-3.5" />
+        </Button>
 
         <Button
           type="button"

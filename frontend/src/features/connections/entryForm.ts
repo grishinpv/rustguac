@@ -124,7 +124,9 @@ export function buildEntryPayload(s: EntryFormState, driveConfigured: boolean): 
   void driveConfigured
   const type = s.type
   const entry: Record<string, unknown> = { type }
-  if (s.displayName.trim()) entry.display_name = s.displayName.trim()
+  // Always send so PUT merges do not drop an existing display_name when the field is cleared.
+  const dn = s.displayName.trim()
+  entry.display_name = dn.length > 0 ? dn : null
 
   if (type === 'ssh') {
     const h = s.hostname.trim()
@@ -252,7 +254,7 @@ export function buildEntryPayload(s: EntryFormState, driveConfigured: boolean): 
 }
 
 export function populateFormFromEntry(s: EntryFormState, e: AddressBookEntry): EntryFormState {
-  const next = { ...s, name: e.name, displayName: e.display_name && e.display_name !== e.name ? e.display_name : '' }
+  const next = { ...s, name: e.name, displayName: e.display_name ?? '' }
   const t = e.session_type
   next.type = t
   if (t === 'ssh') {

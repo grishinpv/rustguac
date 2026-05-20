@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { ChevronRight, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { ChevronRight, PanelLeftClose, PanelLeft, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -10,6 +10,8 @@ import type { MeResponse, Role } from '@/types/api'
 import { useAuthStore } from '@/stores/authStore'
 import { hasRole } from '@/lib/roles'
 import { navSections, canSeeNavItem } from './nav-config'
+import { useDashboardShellOptional } from '@/components/layouts/dashboard-shell-context'
+import { useMediaQuery } from '@/hooks/use-media-query'
 
 const COLLAPSE_KEY = 'rustguac_sidebar_collapsed'
 
@@ -33,6 +35,10 @@ export function AppSidebar({ me }: { me: MeResponse }) {
   const location = useLocation()
   const apiKey = useAuthStore((s) => s.apiKey)
   const [collapsed, setCollapsed] = useState(loadCollapsed)
+  const shell = useDashboardShellOptional()
+  const isLg = useMediaQuery('(min-width: 1024px)')
+  /** Icon rail only makes sense on large screens; mobile drawer stays full labels. */
+  const effectiveCollapsed = collapsed && isLg
 
   const ctx = useMemo(
     () => ({
@@ -54,26 +60,42 @@ export function AppSidebar({ me }: { me: MeResponse }) {
     })
   }
 
+  function onSidebarHeaderAction() {
+    if (isLg) {
+      toggleCollapsed()
+    } else {
+      shell?.closeMobileNav()
+    }
+  }
+
   return (
     <aside
       className={cn(
-        'relative flex min-h-screen flex-col border-r border-sidebar-border bg-sidebar/95 backdrop-blur-md transition-[width] duration-200 ease-out',
-        collapsed ? 'w-[68px]' : 'w-[240px]',
+        'relative flex h-full min-h-0 w-full flex-col border-r border-sidebar-border bg-sidebar/95 backdrop-blur-md transition-[width] duration-200 ease-out lg:max-w-none',
+        effectiveCollapsed ? 'lg:w-[68px]' : 'lg:w-[240px]',
       )}
     >
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-3">
-        {!collapsed ? (
+        {!effectiveCollapsed ? (
           <span className="truncate text-xs font-semibold uppercase tracking-widest text-muted-foreground">Console</span>
         ) : null}
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className={cn('ml-auto h-8 w-8 shrink-0 text-muted-foreground', collapsed && 'mx-auto ml-0')}
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={cn('ml-auto h-8 w-8 shrink-0 text-muted-foreground', effectiveCollapsed && 'mx-auto ml-0')}
+          onClick={onSidebarHeaderAction}
+          aria-label={isLg ? (collapsed ? 'Expand sidebar' : 'Collapse sidebar') : 'Close menu'}
         >
-          {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          {isLg ? (
+            effectiveCollapsed ? (
+              <PanelLeft className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )
+          ) : (
+            <X className="h-4 w-4" />
+          )}
         </Button>
       </div>
 
@@ -84,7 +106,7 @@ export function AppSidebar({ me }: { me: MeResponse }) {
             if (!items.length) return null
             return (
               <div key={section.label} className="mb-2">
-                {!collapsed ? (
+                {!effectiveCollapsed ? (
                   <div className="mb-1.5 px-2 pt-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80">
                     {section.label}
                   </div>
@@ -98,22 +120,23 @@ export function AppSidebar({ me }: { me: MeResponse }) {
                     const link = (
                       <NavLink
                         to={item.to}
+                        onClick={() => shell?.closeMobileNav()}
                         className={cn(
                           'group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors',
                           active
                             ? 'bg-sidebar-accent text-sidebar-foreground shadow-sm'
                             : 'text-sidebar-foreground/75 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground',
-                          collapsed && 'justify-center px-0',
+                          effectiveCollapsed && 'justify-center px-0',
                         )}
                       >
                         <Icon className={cn('h-4 w-4 shrink-0 opacity-80 group-hover:opacity-100', active && 'opacity-100')} />
-                        {!collapsed ? <span className="truncate">{item.label}</span> : null}
-                        {active && !collapsed ? (
+                        {!effectiveCollapsed ? <span className="truncate">{item.label}</span> : null}
+                        {active && !effectiveCollapsed ? (
                           <ChevronRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                         ) : null}
                       </NavLink>
                     )
-                    if (collapsed) {
+                    if (effectiveCollapsed) {
                       return (
                         <Tooltip key={item.to} delayDuration={0}>
                           <TooltipTrigger asChild>{link}</TooltipTrigger>

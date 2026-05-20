@@ -1,14 +1,14 @@
 import './connectionsPage.css'
+import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
-import type { AddressBookEntry, AddressBookFolder, Role, SessionInfo, VdiContainer } from '../../types/api'
+import type { AddressBookEntry, AddressBookFolder, Role } from '../../types/api'
 import {
   connectEntryResult,
   deleteEntry,
   deleteFolder,
-  deleteSession,
   fetchAddressBook,
   fetchAuthStatus,
   fetchEntries,
@@ -16,16 +16,12 @@ import {
   fetchLoginScripts,
   fetchMe,
   fetchSearchIndex,
-  fetchSessionsList,
   fetchSubfolders,
-  fetchVdiContainers,
 } from '../../services/services'
 import { MyCredentialsModal } from '../../components/MyCredentialsModal'
 import { EntryModal, type EntryModalProps } from '../../features/connections/EntryModal'
 import { FolderModal, type FolderEditState } from '../../features/connections/FolderModal'
 import { OnboardingModal, shouldAutoOpenOnboarding } from '../../features/connections/OnboardingModal'
-import { ShareModal } from '../../features/connections/ShareModal'
-
 const EXPANDED_KEY = 'rustguac_connections_expanded'
 const SELECTED_KEY = 'rustguac_connections_selected'
 
@@ -81,7 +77,6 @@ export function ConnectionsPage() {
   const [searchActive, setSearchActive] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [myCredsOpen, setMyCredsOpen] = useState(false)
   const [onboardOpen, setOnboardOpen] = useState(false)
   const [entryModal, setEntryModal] = useState<EntryModalProps['editTarget']>(null)
@@ -95,6 +90,11 @@ export function ConnectionsPage() {
   const [credPass, setCredPass] = useState('')
   const [credDomain, setCredDomain] = useState('')
   const [credErr, setCredErr] = useState('')
+
+  /** Right-click / ⋯ menu for a folder in the tree (admin). */
+  const [folderMenu, setFolderMenu] = useState<null | { folder: TreeFolder; left: number; top: number }>(null)
+  const folderMenuRef = useRef<HTMLDivElement>(null)
+  const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<TreeFolder | null>(null)
 
   const isAdmin = me?.role === 'admin'
 
@@ -326,7 +326,12 @@ export function ConnectionsPage() {
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
       const t = document.activeElement
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
-      if (document.querySelector('.modal-overlay')) return
+      if (
+        document.querySelector('.modal-overlay') ||
+        document.querySelector('[data-entry-sheet]') ||
+        document.querySelector('[data-folder-ctx-menu]')
+      )
+        return
       e.preventDefault()
       searchInputRef.current?.focus()
       searchInputRef.current?.select()
@@ -335,18 +340,87 @@ export function ConnectionsPage() {
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  const { data: activeSessions = [] } = useQuery({
-    queryKey: ['sessions', 'strip'],
-    queryFn: () => fetchSessionsList(false),
-    refetchInterval: 10000,
-    enabled: !!me?.vault_enabled && vaultBlock === 'none',
-  })
-  const { data: vdiList = [] } = useQuery({
-    queryKey: ['vdi', 'containers'],
-    queryFn: fetchVdiContainers,
-    refetchInterval: 10000,
-    enabled: !!me?.vault_enabled && vaultBlock === 'none',
-  })
+  useEffect(() => {
+    if (!folderDeleteConfirm) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setFolderDeleteConfirm(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [folderDeleteConfirm])
+
+  useEffect(() => {
+    if (!folderMenu) return
+    function onDocMouseDown(e: MouseEvent) {
+      const el = folderMenuRef.current
+      if (el && el.contains(e.target as Node)) return
+      setFolderMenu(null)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setFolderMenu(null)
+    }
+    const t = window.setTimeout(() => {
+      document.addEventListener('mousedown', onDocMouseDown, true)
+      document.addEventListener('keydown', onKey, true)
+    }, 0)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('mousedown', onDocMouseDown, true)
+      document.removeEventListener('keydown', onKey, true)
+    }
+  }, [folderMenu])
+
+  function openFolderMenuAt(f: TreeFolder, clientX: number, clientY: number) {
+    const mw = 220
+    const mh = 200
+    const left = Math.max(8, Math.min(clientX, window.innerWidth - mw - 8))
+    const top = Math.max(8, Math.min(clientY, window.innerHeight - mh - 8))
+    setFolderMenu({ folder: f, left, top })
+  }
+
+  async function openEditFolderModal(f: TreeFolder) {
+    setFolderMenu(null)
+    try {
+      const cfg = await fetchFolderConfig(f.scope, f.path)
+      setFolderModal({
+        kind: 'edit',
+        edit: {
+          scope: f.scope,
+          folderPath: f.path,
+          description: f.description,
+          allowed_groups: cfg.allowed_groups || [],
+          inherit_from_parent: !!cfg.inherit_from_parent,
+        },
+      })
+    } catch (e) {
+      setGlobalErr(String(e))
+    }
+  }
+
+  function requestFolderDelete(f: TreeFolder) {
+    setFolderMenu(null)
+    setFolderDeleteConfirm(f)
+  }
+
+  async function confirmFolderDelete() {
+    const f = folderDeleteConfirm
+    if (!f) return
+    setFolderDeleteConfirm(null)
+    try {
+      await deleteFolder(f.scope, f.path)
+      if (selected?.scope === f.scope && selected?.path === f.path) setSelected(null)
+      void abQuery.refetch()
+    } catch (e) {
+      setGlobalErr(String(e))
+    }
+  }
+
+  function openNewEntryForFolder(f: TreeFolder) {
+    setFolderMenu(null)
+    setSelected(f)
+    setEntryModal(null)
+    setEntryOpen(true)
+  }
 
   function maybeAutoOpenSingleton(cache: Record<string, AddressBookEntry[]>) {
     try {
@@ -425,7 +499,19 @@ export function ConnectionsPage() {
     const kids = subcache[key]
     return (
       <li key={key} data-scope={f.scope} data-path={f.path} className={isSel ? 'selected' : ''}>
-        <div className="folder-row" onClick={() => setSelected(f)}>
+        <div
+          className="folder-row"
+          onClick={() => setSelected(f)}
+          onContextMenu={
+            isAdmin
+              ? (e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  openFolderMenuAt(f, e.clientX, e.clientY)
+                }
+              : undefined
+          }
+        >
           <span
             className={`tree-chevron ${f.has_children ? '' : 'leaf'} ${isEx ? 'expanded' : ''}`}
             onClick={(e) => {
@@ -449,6 +535,34 @@ export function ConnectionsPage() {
             {counts[key] !== undefined ? <span className="folder-count">{counts[key]} entries</span> : null}
             {f.description ? <span className="folder-desc">{f.description}</span> : null}
           </div>
+          {isAdmin ? (
+            <div className="folder-row-actions" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="entry-action-btn entry-action-btn--edit entry-action-btn--compact"
+                title="Edit folder"
+                aria-label={`Edit folder ${f.path}`}
+                onClick={() => void openEditFolderModal(f)}
+              >
+                <Pencil className="entry-action-icon" aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="entry-action-btn entry-action-btn--more entry-action-btn--compact"
+                title="Folder actions"
+                aria-label="Open folder menu"
+                aria-haspopup="menu"
+                aria-expanded={folderMenu?.folder.scope === f.scope && folderMenu?.folder.path === f.path}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
+                  openFolderMenuAt(f, r.left, r.bottom + 4)
+                }}
+              >
+                <MoreHorizontal className="entry-action-icon" aria-hidden />
+              </button>
+            </div>
+          ) : null}
         </div>
         {f.has_children && isEx ? (
           <ul className="tree-children">
@@ -546,18 +660,6 @@ export function ConnectionsPage() {
         {globalErr}
       </div>
 
-      <div className="active-sessions mb-8">
-        <ActiveSessionsStrip
-          sessions={activeSessions}
-          vdi={vdiList}
-          onShare={(u) => setShareUrl(u)}
-          onTerminate={(id) => {
-            void deleteSession(id).then(() => void qc.invalidateQueries({ queryKey: ['sessions'] }))
-          }}
-          onRefresh={() => void qc.invalidateQueries({ queryKey: ['sessions'] })}
-        />
-      </div>
-
       {topFolders.length === 0 && isAdmin ? (
         <div className="empty-state mb-8 rounded border p-10 text-center" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
           <h3 className="mt-0">No folders yet</h3>
@@ -572,8 +674,13 @@ export function ConnectionsPage() {
           <div className="sidebar-header">
             <strong>Folders</strong>
             {isAdmin ? (
-              <button type="button" className="btn-add text-sm" onClick={() => setFolderModal({ kind: 'create' })}>
-                + folder
+              <button
+                type="button"
+                className="btn-add text-sm"
+                title="Create a top-level folder"
+                onClick={() => setFolderModal({ kind: 'create' })}
+              >
+                + root folder
               </button>
             ) : null}
           </div>
@@ -609,64 +716,16 @@ export function ConnectionsPage() {
                 {selected.description ? <span className="desc">{selected.description}</span> : null}
                 <span className="flex-1" />
                 {isAdmin ? (
-                  <>
-                    <button
-                      type="button"
-                      className="btn-add"
-                      onClick={() => {
-                        setEntryModal(null)
-                        setEntryOpen(true)
-                      }}
-                    >
-                      + entry
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-add"
-                      onClick={() => setFolderModal({ kind: 'subfolder', parent: { scope: selected.scope, path: selected.path } })}
-                    >
-                      + subfolder
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-small"
-                      onClick={async () => {
-                        const cfg = await fetchFolderConfig(selected.scope, selected.path)
-                        setFolderModal({
-                          kind: 'edit',
-                          edit: {
-                            scope: selected.scope,
-                            folderPath: selected.path,
-                            description: selected.description,
-                            allowed_groups: cfg.allowed_groups || [],
-                            inherit_from_parent: !!cfg.inherit_from_parent,
-                          },
-                        })
-                      }}
-                    >
-                      edit folder
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-small"
-                      onClick={() => {
-                        if (
-                          !confirm(
-                            selected.has_children
-                              ? `Delete folder "${selected.path}" AND all subfolders and entries?`
-                              : `Delete folder "${selected.path}" and all entries?`,
-                          )
-                        )
-                          return
-                        void deleteFolder(selected.scope, selected.path).then(() => {
-                          setSelected(null)
-                          void abQuery.refetch()
-                        })
-                      }}
-                    >
-                      delete folder
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    className="btn-add"
+                    onClick={() => {
+                      setEntryModal(null)
+                      setEntryOpen(true)
+                    }}
+                  >
+                    + entry
+                  </button>
                 ) : null}
               </div>
               {entriesLoading ? <p className="empty">Loading…</p> : null}
@@ -684,15 +743,19 @@ export function ConnectionsPage() {
                     setEntryOpen(true)
                   }}
                   onConnect={onConnectClick}
-                  onDelete={(name) => {
-                    void deleteEntry(selected.scope, selected.path, name).then(() => void loadEntriesFor(selected, true))
+                  onDelete={(name, sc, fo) => {
+                    void deleteEntry(sc, fo, name).then(() => {
+                      void abQuery.refetch()
+                      void searchIdx.refetch()
+                      if (selected && selected.scope === sc && selected.path === fo) void loadEntriesFor(selected, true)
+                    })
                   }}
-                  onEdit={(e) => {
-                    setEntryModal({ mode: 'edit', scope: selected.scope, folder: selected.path, entry: e })
+                  onEdit={(e, sc, fo) => {
+                    setEntryModal({ mode: 'edit', scope: sc, folder: fo, entry: e })
                     setEntryOpen(true)
                   }}
-                  onClone={(e) => {
-                    setEntryModal({ mode: 'clone', scope: selected.scope, folder: selected.path, entry: e })
+                  onClone={(e, sc, fo) => {
+                    setEntryModal({ mode: 'clone', scope: sc, folder: fo, entry: e })
                     setEntryOpen(true)
                   }}
                   onOpenFolder={(scope, path) => {
@@ -713,7 +776,98 @@ export function ConnectionsPage() {
       </div>
       )}
 
-      <ShareModal open={!!shareUrl} url={shareUrl} onClose={() => setShareUrl(null)} />
+      {folderMenu && isAdmin ? (
+        <div
+          ref={folderMenuRef}
+          data-folder-ctx-menu
+          className="folder-ctx-menu fixed z-[85] min-w-[210px] rounded border py-1 shadow-lg"
+          style={{
+            left: folderMenu.left,
+            top: folderMenu.top,
+            background: 'var(--surface)',
+            borderColor: 'var(--border)',
+          }}
+          role="menu"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="folder-ctx-menu-label border-b px-3 py-2 text-xs" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+            {folderMenu.folder.path}
+          </div>
+          <button
+            type="button"
+            className="folder-ctx-menu-item"
+            role="menuitem"
+            onClick={() => {
+              const f = folderMenu.folder
+              setFolderMenu(null)
+              setFolderModal({ kind: 'subfolder', parent: { scope: f.scope, path: f.path } })
+            }}
+          >
+            New subfolder
+          </button>
+          <button
+            type="button"
+            className="folder-ctx-menu-item"
+            role="menuitem"
+            onClick={() => void openEditFolderModal(folderMenu.folder)}
+          >
+            Edit folder…
+          </button>
+          <button
+            type="button"
+            className="folder-ctx-menu-item folder-ctx-menu-item-danger"
+            role="menuitem"
+            onClick={() => requestFolderDelete(folderMenu.folder)}
+          >
+            Remove folder…
+          </button>
+          <button
+            type="button"
+            className="folder-ctx-menu-item border-t"
+            style={{ borderColor: 'var(--border)' }}
+            role="menuitem"
+            onClick={() => openNewEntryForFolder(folderMenu.folder)}
+          >
+            New entry…
+          </button>
+        </div>
+      ) : null}
+
+      {folderDeleteConfirm ? (
+        <div
+          className="modal-overlay active fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="folder-delete-title"
+          onMouseDown={(e) => e.target === e.currentTarget && setFolderDeleteConfirm(null)}
+        >
+          <div className="modal w-full max-w-md rounded border p-5" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+            <h3 id="folder-delete-title" className="mt-0">
+              Remove folder?
+            </h3>
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              <strong className="font-mono text-[var(--text)]">{folderDeleteConfirm.path}</strong>
+              {folderDeleteConfirm.has_children ? (
+                <>
+                  {' '}
+                  and <strong>all subfolders</strong> will be removed permanently, along with every connection entry they contain.
+                </>
+              ) : (
+                <> All connection entries in this folder will be removed permanently.</>
+              )}
+            </p>
+            <div className="modal-actions mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" className="btn-cancel" onClick={() => setFolderDeleteConfirm(null)}>
+                Cancel
+              </button>
+              <button type="button" className="btn-danger-solid" onClick={() => void confirmFolderDelete()}>
+                Remove folder
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <MyCredentialsModal open={myCredsOpen} onClose={() => setMyCredsOpen(false)} />
       <OnboardingModal open={onboardOpen} onClose={() => setOnboardOpen(false)} role={(me.role || 'viewer') as Role} />
       <EntryModal
@@ -824,109 +978,35 @@ export function ConnectionsPage() {
   )
 }
 
-function ActiveSessionsStrip({
-  sessions,
-  vdi,
-  onShare,
-  onTerminate,
-  onRefresh,
+function EntryRowAdminActions({
+  entryName,
+  onEdit,
+  onClone,
+  onDelete,
 }: {
-  sessions: SessionInfo[]
-  vdi: VdiContainer[]
-  onShare: (url: string) => void
-  onTerminate: (id: string) => void
-  onRefresh: () => void
+  entryName: string
+  onEdit: () => void
+  onClone: () => void
+  onDelete: () => void
 }) {
-  const active = sessions.filter((s) => s.status === 'active' || s.status === 'pending')
-  const activeContainers: Record<string, boolean> = {}
-  active.forEach((s) => {
-    if (s.session_type === 'vdi' && s.hostname) activeContainers[s.hostname] = true
-  })
-  const dormant = vdi.filter((c) => !c.has_active_session && !activeContainers[c.container_name])
-  const total = active.length + dormant.length
-  if (total === 0) return null
   return (
-    <section>
-      <div className="mb-2 text-sm font-bold uppercase tracking-wider" style={{ color: 'var(--accent)' }}>
-        Active sessions <span style={{ color: 'var(--text-muted)' }}>({total})</span>
-      </div>
-      <div className="session-grid">
-        {active.map((s) => {
-          const thumb = s.thumbnail_url || ''
-          const name = s.entry_display_name || s.hostname || s.url || '?'
-          const share = s.share_url ? `${window.location.origin}${s.share_url}` : ''
-          return (
-            <div
-              key={s.session_id}
-              className="session-card"
-              onClick={() => s.client_url && window.open(s.client_url, '_blank')}
-              onKeyDown={(e) => e.key === 'Enter' && s.client_url && window.open(s.client_url, '_blank')}
-              role="button"
-              tabIndex={0}
-            >
-              <img className="session-card-thumb" src={thumb ? `${thumb}?t=${Date.now()}` : ''} alt="" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />
-              <div className="session-card-info">
-                <div className="card-name">{name}</div>
-                <div className="card-meta">
-                  <span className={`type-badge type-${s.session_type}`}>{s.session_type}</span> <span>{s.username || ''}</span>
-                </div>
-              </div>
-              <div className="card-actions">
-                {share ? (
-                  <button
-                    type="button"
-                    className="btn-add"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onShare(share)
-                    }}
-                  >
-                    Share
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="btn-add btn-danger"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (!confirm(`Terminate session "${name}"?`)) return
-                    onTerminate(s.session_id)
-                    onRefresh()
-                  }}
-                >
-                  Terminate
-                </button>
-              </div>
-            </div>
-          )
-        })}
-        {dormant.map((c) => (
-          <div
-            key={c.container_name}
-            className="session-card dormant"
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              if (!c.entry_key) return
-              const parts = c.entry_key.split('/')
-              if (parts.length !== 3) return
-              const [scope, folder, entry] = parts as [string, string, string]
-              void connectEntryResult(scope, folder, entry, { width: window.innerWidth, height: window.innerHeight }).then((r) => {
-                if (r.ok && r.data.session_id) window.open(`/client/${r.data.session_id}`, '_blank')
-              })
-            }}
-          >
-            <img className="session-card-thumb" src={c.thumbnail_url ? `${c.thumbnail_url}?t=${Date.now()}` : ''} alt="" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />
-            <div className="session-card-info">
-              <div className="card-name">{c.image || c.container_name}</div>
-              <div className="card-meta">
-                <span className="type-badge type-vdi">vdi</span> <span>dormant</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
+    <div className="entry-actions" role="group" aria-label="Entry actions">
+      <button type="button" className="entry-action-btn entry-action-btn--edit" title="Edit entry" aria-label={`Edit entry ${entryName}`} onClick={onEdit}>
+        <Pencil className="entry-action-icon" aria-hidden />
+      </button>
+      <button type="button" className="entry-action-btn entry-action-btn--clone" title="Clone entry" aria-label={`Clone entry ${entryName}`} onClick={onClone}>
+        <Copy className="entry-action-icon" aria-hidden />
+      </button>
+      <button
+        type="button"
+        className="entry-action-btn entry-action-btn--delete"
+        title="Delete entry"
+        aria-label={`Delete entry ${entryName}`}
+        onClick={onDelete}
+      >
+        <Trash2 className="entry-action-icon" aria-hidden />
+      </button>
+    </div>
   )
 }
 
@@ -954,9 +1034,9 @@ function EntriesTable({
   searchQ: string
   onEmptyAdd: () => void
   onConnect: (e: AddressBookEntry, scope: string, folder: string) => void
-  onDelete: (name: string) => void
-  onEdit: (e: AddressBookEntry) => void
-  onClone: (e: AddressBookEntry) => void
+  onDelete: (name: string, scope: string, folder: string) => void
+  onEdit: (e: AddressBookEntry, scope: string, folder: string) => void
+  onClone: (e: AddressBookEntry, scope: string, folder: string) => void
   onOpenFolder: (scope: string, path: string) => void
 }) {
   if (searchActive) {
@@ -980,14 +1060,16 @@ function EntriesTable({
               <th>Host</th>
               <th>User</th>
               <th>Folder</th>
+              <th>Connect</th>
               <th />
-              <th />
+              {admin ? <th>Manage</th> : null}
             </tr>
           </thead>
           <tbody>
             {shown.map(({ row: r }) => {
               const e = r.entry
-              const needsPrompt = (e.prompt_credentials || !e.has_credentials) && e.session_type !== 'web'
+              const needsPrompt =
+                (e.prompt_credentials || !e.has_credentials) && e.session_type !== 'web' && e.session_type !== 'vdi'
               const label = needsPrompt ? 'Login…' : 'Connect'
               return (
                 <tr key={`${r.scope}/${r.folderPath}/${e.name}`}>
@@ -1012,6 +1094,19 @@ function EntriesTable({
                       ↗ open folder
                     </button>
                   </td>
+                  {admin ? (
+                    <td>
+                      <EntryRowAdminActions
+                        entryName={e.name}
+                        onEdit={() => onEdit(e, r.scope, r.folderPath)}
+                        onClone={() => onClone(e, r.scope, r.folderPath)}
+                        onDelete={() => {
+                          if (!confirm(`Delete entry "${e.name}"?`)) return
+                          onDelete(e.name, r.scope, r.folderPath)
+                        }}
+                      />
+                    </td>
+                  ) : null}
                 </tr>
               )
             })}
@@ -1047,14 +1142,8 @@ function EntriesTable({
           <th>Type</th>
           <th>Host</th>
           <th>User</th>
-          <th />
-          {admin ? (
-            <>
-              <th />
-              <th />
-              <th />
-            </>
-          ) : null}
+          <th>Connect</th>
+          {admin ? <th>Manage</th> : null}
         </tr>
       </thead>
       <tbody>
@@ -1066,7 +1155,8 @@ function EntriesTable({
           const hops = e.jump_hosts?.length
             ? ` via ${e.jump_hosts.map((h) => h.hostname).join(' \u2192 ')}`
             : ''
-          const needsPrompt = (e.prompt_credentials || !e.has_credentials) && e.session_type !== 'web'
+          const needsPrompt =
+            (e.prompt_credentials || !e.has_credentials) && e.session_type !== 'web' && e.session_type !== 'vdi'
           const connectLabel = needsPrompt ? 'Login…' : 'Connect'
           return (
             <tr key={e.name}>
@@ -1091,30 +1181,17 @@ function EntriesTable({
                 </button>
               </td>
               {admin ? (
-                <>
-                  <td>
-                    <button type="button" className="btn-small" onClick={() => onEdit(e)}>
-                      edit
-                  </button>
-                  </td>
-                  <td>
-                    <button type="button" className="btn-small" onClick={() => onClone(e)}>
-                      clone
-                    </button>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn-small"
-                      onClick={() => {
-                        if (!confirm(`Delete entry "${e.name}"?`)) return
-                        onDelete(e.name)
-                      }}
-                    >
-                      delete
-                    </button>
-                  </td>
-                </>
+                <td>
+                  <EntryRowAdminActions
+                    entryName={e.name}
+                    onEdit={() => onEdit(e, scope, folder)}
+                    onClone={() => onClone(e, scope, folder)}
+                    onDelete={() => {
+                      if (!confirm(`Delete entry "${e.name}"?`)) return
+                      onDelete(e.name, scope, folder)
+                    }}
+                  />
+                </td>
               ) : null}
             </tr>
           )
