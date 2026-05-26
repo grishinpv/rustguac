@@ -254,10 +254,177 @@ home_base = "/vdi-homes"
 
 ## Environment variables
 
+Every configuration key has a corresponding environment variable. Env vars are applied **after** the config file is loaded and take precedence over file values. Sections that are absent from the config file are auto-initialized when their key env var is set (noted below).
+
+**Booleans** accept `true`/`1`/`yes` or `false`/`0`/`no`.  
+**List variables** accept comma-separated values: `RUSTGUAC_SSH_ALLOWED_NETWORKS=10.0.0.0/8,192.168.0.0/16`.
+
+### Top-level
+
+| Variable | Config key | Notes |
+|----------|------------|-------|
+| `RUSTGUAC_LISTEN_ADDR` | `listen_addr` | |
+| `RUSTGUAC_GUACD_ADDR` | `guacd_addr` | |
+| `RUSTGUAC_RECORDING_PATH` | `recording_path` | Also sets `[recording].path` |
+| `RUSTGUAC_STATIC_PATH` | `static_path` | |
+| `RUSTGUAC_UI_FRONTEND` | `ui_frontend` | `spa` or `static` |
+| `RUSTGUAC_DB_PATH` | `db_path` | |
+| `RUSTGUAC_SITE_TITLE` | `site_title` | |
+| `RUSTGUAC_SESSION_PENDING_TIMEOUT_SECS` | `session_pending_timeout_secs` | |
+| `RUSTGUAC_SESSION_MAX_DURATION_SECS` | `session_max_duration_secs` | |
+| `RUSTGUAC_AUTH_SESSION_TTL_SECS` | `auth_session_ttl_secs` | |
+| `RUSTGUAC_SESSION_HISTORY_RETENTION_DAYS` | `session_history_retention_days` | |
+| `RUSTGUAC_SESSION_CLEANUP_DELAY_SECS` | `session_cleanup_delay_secs` | |
+| `RUSTGUAC_MAX_SESSIONS` | `max_sessions` | |
+| `RUSTGUAC_MAX_SESSIONS_PER_USER` | `max_sessions_per_user` | |
+| `RUSTGUAC_RATE_LIMIT` | `rate_limit` | Boolean |
+| `RUSTGUAC_TRUSTED_PROXIES` | `trusted_proxies` | Comma-separated CIDRs |
+| `RUSTGUAC_XVNC_PATH` | `xvnc_path` | |
+| `RUSTGUAC_CHROMIUM_PATH` | `chromium_path` | |
+| `RUSTGUAC_DISPLAY_RANGE_START` | `display_range_start` | |
+| `RUSTGUAC_DISPLAY_RANGE_END` | `display_range_end` | |
+| `RUSTGUAC_CDP_PORT_RANGE_START` | `cdp_port_range_start` | |
+| `RUSTGUAC_CDP_PORT_RANGE_END` | `cdp_port_range_end` | |
+| `RUSTGUAC_LOGIN_SCRIPTS_DIR` | `login_scripts_dir` | |
+| `RUSTGUAC_LOGIN_SCRIPT_TIMEOUT_SECS` | `login_script_timeout_secs` | |
+| `RUSTGUAC_SSH_ALLOWED_NETWORKS` | `ssh_allowed_networks` | Comma-separated CIDRs |
+| `RUSTGUAC_RDP_ALLOWED_NETWORKS` | `rdp_allowed_networks` | Comma-separated CIDRs |
+| `RUSTGUAC_VNC_ALLOWED_NETWORKS` | `vnc_allowed_networks` | Comma-separated CIDRs |
+| `RUSTGUAC_WEB_ALLOWED_NETWORKS` | `web_allowed_networks` | Comma-separated CIDRs |
+
+### `[tls]`
+
+Setting any of these auto-initializes the `[tls]` section if absent.
+
+| Variable | Config key |
+|----------|------------|
+| `RUSTGUAC_TLS_CERT_PATH` | `tls.cert_path` |
+| `RUSTGUAC_TLS_KEY_PATH` | `tls.key_path` |
+| `RUSTGUAC_TLS_GUACD_CERT_PATH` | `tls.guacd_cert_path` |
+
+### `[oidc]`
+
+Setting `RUSTGUAC_OIDC_ISSUER_URL` auto-initializes the `[oidc]` section if absent, allowing fully config-file-free OIDC setup.
+
+| Variable | Config key | Notes |
+|----------|------------|-------|
+| `RUSTGUAC_OIDC_ISSUER_URL` | `oidc.issuer_url` | Auto-inits section |
+| `RUSTGUAC_OIDC_CLIENT_ID` | `oidc.client_id` | |
+| `RUSTGUAC_OIDC_CLIENT_SECRET` | `oidc.client_secret` | Preferred form |
+| `OIDC_CLIENT_SECRET` | `oidc.client_secret` | Legacy alias; `RUSTGUAC_OIDC_CLIENT_SECRET` wins if both set |
+| `RUSTGUAC_OIDC_REDIRECT_URI` | `oidc.redirect_uri` | |
+| `RUSTGUAC_OIDC_DEFAULT_ROLE` | `oidc.default_role` | |
+| `RUSTGUAC_OIDC_GROUPS_CLAIM` | `oidc.groups_claim` | |
+| `RUSTGUAC_OIDC_EXTRA_SCOPES` | `oidc.extra_scopes` | Comma-separated |
+| `RUSTGUAC_OIDC_TLS_SKIP_VERIFY` | `oidc.tls_skip_verify` | Boolean |
+| `RUSTGUAC_OIDC_CA_CERT` | `oidc.ca_cert` | |
+
+### `[vault]`
+
+Setting `RUSTGUAC_VAULT_ADDR` auto-initializes the `[vault]` section if absent.
+
+| Variable | Config key | Notes |
+|----------|------------|-------|
+| `RUSTGUAC_VAULT_ADDR` | `vault.addr` | Auto-inits section |
+| `RUSTGUAC_VAULT_ROLE_ID` | `vault.role_id` | |
+| `VAULT_SECRET_ID` | *(runtime only)* | AppRole secret ID — read directly by the Vault client, not stored in config |
+| `RUSTGUAC_VAULT_MOUNT` | `vault.mount` | |
+| `RUSTGUAC_VAULT_BASE_PATH` | `vault.base_path` | |
+| `RUSTGUAC_VAULT_NAMESPACE` | `vault.namespace` | |
+| `RUSTGUAC_VAULT_INSTANCE_NAME` | `vault.instance_name` | |
+| `RUSTGUAC_VAULT_TLS_SKIP_VERIFY` | `vault.tls_skip_verify` | Boolean |
+| `RUSTGUAC_VAULT_CA_CERT` | `vault.ca_cert` | |
+| `RUSTGUAC_VAULT_CLIENT_CERT` | `vault.client_cert` | |
+| `RUSTGUAC_VAULT_CLIENT_KEY` | `vault.client_key` | |
+
+### `[drive]`
+
+Setting any `RUSTGUAC_DRIVE_*` variable auto-initializes the `[drive]` section if absent.
+
+| Variable | Config key | Notes |
+|----------|------------|-------|
+| `RUSTGUAC_DRIVE_ENABLED` | `drive.enabled` | Boolean |
+| `RUSTGUAC_DRIVE_PATH` | `drive.drive_path` | |
+| `RUSTGUAC_DRIVE_NAME` | `drive.drive_name` | |
+| `RUSTGUAC_DRIVE_ALLOW_DOWNLOAD` | `drive.allow_download` | Boolean |
+| `RUSTGUAC_DRIVE_ALLOW_UPLOAD` | `drive.allow_upload` | Boolean |
+| `RUSTGUAC_DRIVE_CLEANUP_ON_CLOSE` | `drive.cleanup_on_close` | Boolean |
+| `RUSTGUAC_DRIVE_RETENTION_SECS` | `drive.retention_secs` | |
+| `RUSTGUAC_DRIVE_LUKS_DEVICE` | `drive.luks_device` | |
+| `RUSTGUAC_DRIVE_LUKS_NAME` | `drive.luks_name` | |
+| `RUSTGUAC_DRIVE_LUKS_KEY_PATH` | `drive.luks_key_path` | |
+
+### `[recording]`
+
+Setting any `RUSTGUAC_RECORDING_*` variable (except `RUSTGUAC_RECORDING_PATH`) auto-initializes the `[recording]` section if absent.
+
+| Variable | Config key | Notes |
+|----------|------------|-------|
+| `RUSTGUAC_RECORDING_PATH` | `recording_path` / `recording.path` | Sets both top-level and section |
+| `RUSTGUAC_RECORDING_ENABLED` | `recording.enabled` | Boolean |
+| `RUSTGUAC_RECORDING_MAX_DISK_PERCENT` | `recording.max_disk_percent` | |
+| `RUSTGUAC_RECORDING_MAX_RECORDINGS` | `recording.max_recordings` | |
+| `RUSTGUAC_RECORDING_ROTATION_INTERVAL_SECS` | `recording.rotation_interval_secs` | |
+
+### `[vdi]`
+
+Setting any `RUSTGUAC_VDI_*` variable auto-initializes the `[vdi]` section if absent.
+
+| Variable | Config key | Notes |
+|----------|------------|-------|
+| `RUSTGUAC_VDI_ENABLED` | `vdi.enabled` | Boolean |
+| `RUSTGUAC_VDI_DOCKER_SOCKET` | `vdi.docker_socket` | |
+| `RUSTGUAC_VDI_DEFAULT_CPU_LIMIT` | `vdi.default_cpu_limit` | Float |
+| `RUSTGUAC_VDI_DEFAULT_MEMORY_LIMIT` | `vdi.default_memory_limit` | MB |
+| `RUSTGUAC_VDI_READY_TIMEOUT_SECS` | `vdi.ready_timeout_secs` | |
+| `RUSTGUAC_VDI_IDLE_TIMEOUT_MINS` | `vdi.idle_timeout_mins` | |
+| `RUSTGUAC_VDI_ALLOWED_IMAGES` | `vdi.allowed_images` | Comma-separated |
+| `RUSTGUAC_VDI_HOME_BASE` | `vdi.home_base` | |
+
+### `[theme]`
+
+Setting any `RUSTGUAC_THEME_*` variable auto-initializes the `[theme]` section if absent. Variable names mirror the config keys with `RUSTGUAC_THEME_` prefix and uppercase snake_case.
+
+| Variable | Config key |
+|----------|------------|
+| `RUSTGUAC_THEME_PRESET` | `theme.preset` |
+| `RUSTGUAC_THEME_LOGO_URL` | `theme.logo_url` |
+| `RUSTGUAC_THEME_PRIMARY_COLOR` | `theme.primary_color` |
+| `RUSTGUAC_THEME_PRIMARY_HOVER` | `theme.primary_hover` |
+| `RUSTGUAC_THEME_ACCENT_COLOR` | `theme.accent_color` |
+| `RUSTGUAC_THEME_ACCENT_HOVER` | `theme.accent_hover` |
+| `RUSTGUAC_THEME_BG_COLOR` | `theme.bg_color` |
+| `RUSTGUAC_THEME_SURFACE_COLOR` | `theme.surface_color` |
+| `RUSTGUAC_THEME_INPUT_COLOR` | `theme.input_color` |
+| `RUSTGUAC_THEME_TEXT_COLOR` | `theme.text_color` |
+| `RUSTGUAC_THEME_TEXT_MUTED` | `theme.text_muted` |
+| `RUSTGUAC_THEME_TEXT_DIM` | `theme.text_dim` |
+| `RUSTGUAC_THEME_TEXT_ON_PRIMARY` | `theme.text_on_primary` |
+| `RUSTGUAC_THEME_BORDER_COLOR` | `theme.border_color` |
+| `RUSTGUAC_THEME_BTN_DISABLED` | `theme.btn_disabled` |
+| `RUSTGUAC_THEME_BG_PATTERN` | `theme.bg_pattern` |
+| `RUSTGUAC_THEME_STATUS_PENDING` | `theme.status_pending` |
+| `RUSTGUAC_THEME_STATUS_ACTIVE` | `theme.status_active` |
+| `RUSTGUAC_THEME_STATUS_COMPLETED` | `theme.status_completed` |
+| `RUSTGUAC_THEME_STATUS_ERROR` | `theme.status_error` |
+| `RUSTGUAC_THEME_STATUS_EXPIRED` | `theme.status_expired` |
+| `RUSTGUAC_THEME_TYPE_SSH_BG` / `_FG` | `theme.type_ssh_bg` / `_fg` |
+| `RUSTGUAC_THEME_TYPE_RDP_BG` / `_FG` | `theme.type_rdp_bg` / `_fg` |
+| `RUSTGUAC_THEME_TYPE_VNC_BG` / `_FG` | `theme.type_vnc_bg` / `_fg` |
+| `RUSTGUAC_THEME_TYPE_WEB_BG` / `_FG` | `theme.type_web_bg` / `_fg` |
+| `RUSTGUAC_THEME_TYPE_VDI_BG` / `_FG` | `theme.type_vdi_bg` / `_fg` |
+| `RUSTGUAC_THEME_HOP_BG` / `_FG` | `theme.hop_bg` / `_fg` |
+
+### `[rdp]`
+
+| Variable | Config key |
+|----------|------------|
+| `RUSTGUAC_RDP_DEFAULT_AUTH_PKG` | `rdp.default_auth_pkg` |
+
+### System
+
 | Variable | Description |
 |----------|-------------|
-| `OIDC_CLIENT_SECRET` | Override OIDC client secret from config file |
-| `VAULT_SECRET_ID` | Vault AppRole secret ID |
 | `RUST_LOG` | Log level (e.g., `info`, `debug`, `rustguac=debug`) |
 
 ### Setting environment variables for systemd

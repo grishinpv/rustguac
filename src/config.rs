@@ -1028,6 +1028,309 @@ fn load_from_file(path: &str) -> Result<Config, String> {
     toml::from_str::<Config>(&contents).map_err(|e| format!("{}", e))
 }
 
+macro_rules! env_str {
+    ($field:expr, $key:literal) => {
+        if let Ok(v) = std::env::var($key) {
+            if !v.is_empty() { $field = v; }
+        }
+    };
+}
+macro_rules! env_opt_str {
+    ($field:expr, $key:literal) => {
+        if let Ok(v) = std::env::var($key) {
+            if !v.is_empty() { $field = Some(v); }
+        }
+    };
+}
+macro_rules! env_path {
+    ($field:expr, $key:literal) => {
+        if let Ok(v) = std::env::var($key) {
+            if !v.is_empty() { $field = PathBuf::from(v); }
+        }
+    };
+}
+macro_rules! env_opt_path {
+    ($field:expr, $key:literal) => {
+        if let Ok(v) = std::env::var($key) {
+            if !v.is_empty() { $field = Some(PathBuf::from(v)); }
+        }
+    };
+}
+macro_rules! env_bool {
+    ($field:expr, $key:literal) => {
+        if let Ok(v) = std::env::var($key) {
+            match v.to_lowercase().as_str() {
+                "true" | "1" | "yes" => $field = true,
+                "false" | "0" | "no" => $field = false,
+                _ => {}
+            }
+        }
+    };
+}
+macro_rules! env_parse {
+    ($field:expr, $key:literal, $ty:ty) => {
+        if let Ok(v) = std::env::var($key) {
+            if let Ok(n) = v.parse::<$ty>() { $field = n; }
+        }
+    };
+}
+macro_rules! env_vec {
+    ($field:expr, $key:literal) => {
+        if let Ok(v) = std::env::var($key) {
+            if !v.is_empty() {
+                $field = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            }
+        }
+    };
+}
+
+fn any_env(keys: &[&str]) -> bool {
+    keys.iter().any(|k| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false))
+}
+
+fn apply_env_overrides(config: &mut Config) {
+    // --- Top-level ---
+    env_str!(config.listen_addr, "RUSTGUAC_LISTEN_ADDR");
+    env_str!(config.guacd_addr, "RUSTGUAC_GUACD_ADDR");
+    env_path!(config.recording_path, "RUSTGUAC_RECORDING_PATH");
+    env_path!(config.static_path, "RUSTGUAC_STATIC_PATH");
+    if let Ok(v) = std::env::var("RUSTGUAC_UI_FRONTEND") {
+        match v.to_lowercase().as_str() {
+            "spa" => config.ui_frontend = UiFrontend::Spa,
+            "static" => config.ui_frontend = UiFrontend::Static,
+            _ => {}
+        }
+    }
+    env_path!(config.db_path, "RUSTGUAC_DB_PATH");
+    env_parse!(config.session_pending_timeout_secs, "RUSTGUAC_SESSION_PENDING_TIMEOUT_SECS", u64);
+    env_parse!(config.session_max_duration_secs, "RUSTGUAC_SESSION_MAX_DURATION_SECS", u64);
+    env_parse!(config.auth_session_ttl_secs, "RUSTGUAC_AUTH_SESSION_TTL_SECS", u64);
+    env_parse!(config.session_history_retention_days, "RUSTGUAC_SESSION_HISTORY_RETENTION_DAYS", u32);
+    env_str!(config.xvnc_path, "RUSTGUAC_XVNC_PATH");
+    env_str!(config.chromium_path, "RUSTGUAC_CHROMIUM_PATH");
+    env_parse!(config.display_range_start, "RUSTGUAC_DISPLAY_RANGE_START", u32);
+    env_parse!(config.display_range_end, "RUSTGUAC_DISPLAY_RANGE_END", u32);
+    env_parse!(config.cdp_port_range_start, "RUSTGUAC_CDP_PORT_RANGE_START", u16);
+    env_parse!(config.cdp_port_range_end, "RUSTGUAC_CDP_PORT_RANGE_END", u16);
+    env_parse!(config.login_script_timeout_secs, "RUSTGUAC_LOGIN_SCRIPT_TIMEOUT_SECS", u64);
+    env_str!(config.login_scripts_dir, "RUSTGUAC_LOGIN_SCRIPTS_DIR");
+    env_str!(config.site_title, "RUSTGUAC_SITE_TITLE");
+    env_vec!(config.ssh_allowed_networks, "RUSTGUAC_SSH_ALLOWED_NETWORKS");
+    env_vec!(config.rdp_allowed_networks, "RUSTGUAC_RDP_ALLOWED_NETWORKS");
+    env_vec!(config.vnc_allowed_networks, "RUSTGUAC_VNC_ALLOWED_NETWORKS");
+    env_vec!(config.web_allowed_networks, "RUSTGUAC_WEB_ALLOWED_NETWORKS");
+    env_parse!(config.max_sessions, "RUSTGUAC_MAX_SESSIONS", usize);
+    env_parse!(config.max_sessions_per_user, "RUSTGUAC_MAX_SESSIONS_PER_USER", usize);
+    env_parse!(config.session_cleanup_delay_secs, "RUSTGUAC_SESSION_CLEANUP_DELAY_SECS", u64);
+    env_bool!(config.rate_limit, "RUSTGUAC_RATE_LIMIT");
+    env_vec!(config.trusted_proxies, "RUSTGUAC_TRUSTED_PROXIES");
+
+    // --- [tls] ---
+    if config.tls.is_none() && any_env(&[
+        "RUSTGUAC_TLS_CERT_PATH", "RUSTGUAC_TLS_KEY_PATH", "RUSTGUAC_TLS_GUACD_CERT_PATH",
+    ]) {
+        config.tls = Some(TlsConfig { cert_path: None, key_path: None, guacd_cert_path: None });
+    }
+    if let Some(ref mut tls) = config.tls {
+        env_opt_path!(tls.cert_path, "RUSTGUAC_TLS_CERT_PATH");
+        env_opt_path!(tls.key_path, "RUSTGUAC_TLS_KEY_PATH");
+        env_opt_path!(tls.guacd_cert_path, "RUSTGUAC_TLS_GUACD_CERT_PATH");
+    }
+
+    // --- [oidc] — auto-init when issuer_url is provided ---
+    if config.oidc.is_none() && any_env(&["RUSTGUAC_OIDC_ISSUER_URL"]) {
+        config.oidc = Some(OidcConfig {
+            issuer_url: String::new(),
+            client_id: String::new(),
+            client_secret: None,
+            redirect_uri: String::new(),
+            default_role: default_oidc_default_role(),
+            groups_claim: default_groups_claim(),
+            extra_scopes: Vec::new(),
+            tls_skip_verify: false,
+            ca_cert: None,
+        });
+    }
+    if let Some(ref mut oidc) = config.oidc {
+        env_str!(oidc.issuer_url, "RUSTGUAC_OIDC_ISSUER_URL");
+        env_str!(oidc.client_id, "RUSTGUAC_OIDC_CLIENT_ID");
+        // RUSTGUAC_OIDC_CLIENT_SECRET takes priority; OIDC_CLIENT_SECRET kept for backward compat
+        for key in &["RUSTGUAC_OIDC_CLIENT_SECRET", "OIDC_CLIENT_SECRET"] {
+            if let Ok(v) = std::env::var(key) {
+                if !v.is_empty() {
+                    oidc.client_secret = Some(v);
+                    break;
+                }
+            }
+        }
+        env_str!(oidc.redirect_uri, "RUSTGUAC_OIDC_REDIRECT_URI");
+        env_str!(oidc.default_role, "RUSTGUAC_OIDC_DEFAULT_ROLE");
+        env_str!(oidc.groups_claim, "RUSTGUAC_OIDC_GROUPS_CLAIM");
+        env_vec!(oidc.extra_scopes, "RUSTGUAC_OIDC_EXTRA_SCOPES");
+        env_bool!(oidc.tls_skip_verify, "RUSTGUAC_OIDC_TLS_SKIP_VERIFY");
+        env_opt_str!(oidc.ca_cert, "RUSTGUAC_OIDC_CA_CERT");
+    }
+
+    // --- [vault] — auto-init when addr is provided ---
+    if config.vault.is_none() && any_env(&["RUSTGUAC_VAULT_ADDR"]) {
+        config.vault = Some(VaultConfig {
+            addr: String::new(),
+            mount: default_vault_mount(),
+            base_path: default_vault_base_path(),
+            role_id: String::new(),
+            namespace: None,
+            instance_name: None,
+            tls_skip_verify: false,
+            ca_cert: None,
+            client_cert: None,
+            client_key: None,
+        });
+    }
+    if let Some(ref mut vault) = config.vault {
+        env_str!(vault.addr, "RUSTGUAC_VAULT_ADDR");
+        env_str!(vault.mount, "RUSTGUAC_VAULT_MOUNT");
+        env_str!(vault.base_path, "RUSTGUAC_VAULT_BASE_PATH");
+        env_str!(vault.role_id, "RUSTGUAC_VAULT_ROLE_ID");
+        env_opt_str!(vault.namespace, "RUSTGUAC_VAULT_NAMESPACE");
+        env_opt_str!(vault.instance_name, "RUSTGUAC_VAULT_INSTANCE_NAME");
+        env_bool!(vault.tls_skip_verify, "RUSTGUAC_VAULT_TLS_SKIP_VERIFY");
+        env_opt_str!(vault.ca_cert, "RUSTGUAC_VAULT_CA_CERT");
+        env_opt_str!(vault.client_cert, "RUSTGUAC_VAULT_CLIENT_CERT");
+        env_opt_str!(vault.client_key, "RUSTGUAC_VAULT_CLIENT_KEY");
+    }
+
+    // --- [drive] ---
+    if config.drive.is_none() && any_env(&[
+        "RUSTGUAC_DRIVE_ENABLED", "RUSTGUAC_DRIVE_PATH", "RUSTGUAC_DRIVE_NAME",
+        "RUSTGUAC_DRIVE_ALLOW_DOWNLOAD", "RUSTGUAC_DRIVE_ALLOW_UPLOAD",
+        "RUSTGUAC_DRIVE_CLEANUP_ON_CLOSE", "RUSTGUAC_DRIVE_RETENTION_SECS",
+        "RUSTGUAC_DRIVE_LUKS_DEVICE", "RUSTGUAC_DRIVE_LUKS_NAME", "RUSTGUAC_DRIVE_LUKS_KEY_PATH",
+    ]) {
+        config.drive = Some(DriveConfig::default());
+    }
+    if let Some(ref mut drive) = config.drive {
+        env_bool!(drive.enabled, "RUSTGUAC_DRIVE_ENABLED");
+        env_path!(drive.drive_path, "RUSTGUAC_DRIVE_PATH");
+        env_str!(drive.drive_name, "RUSTGUAC_DRIVE_NAME");
+        env_bool!(drive.allow_download, "RUSTGUAC_DRIVE_ALLOW_DOWNLOAD");
+        env_bool!(drive.allow_upload, "RUSTGUAC_DRIVE_ALLOW_UPLOAD");
+        env_bool!(drive.cleanup_on_close, "RUSTGUAC_DRIVE_CLEANUP_ON_CLOSE");
+        env_parse!(drive.retention_secs, "RUSTGUAC_DRIVE_RETENTION_SECS", u64);
+        env_opt_path!(drive.luks_device, "RUSTGUAC_DRIVE_LUKS_DEVICE");
+        env_str!(drive.luks_name, "RUSTGUAC_DRIVE_LUKS_NAME");
+        env_opt_str!(drive.luks_key_path, "RUSTGUAC_DRIVE_LUKS_KEY_PATH");
+    }
+
+    // --- [recording] ---
+    if config.recording.is_none() && any_env(&[
+        "RUSTGUAC_RECORDING_ENABLED", "RUSTGUAC_RECORDING_MAX_DISK_PERCENT",
+        "RUSTGUAC_RECORDING_MAX_RECORDINGS", "RUSTGUAC_RECORDING_ROTATION_INTERVAL_SECS",
+    ]) {
+        config.recording = Some(RecordingConfig::default());
+    }
+    if let Some(ref mut rec) = config.recording {
+        // RUSTGUAC_RECORDING_PATH applies to both top-level and [recording].path
+        env_path!(rec.path, "RUSTGUAC_RECORDING_PATH");
+        env_bool!(rec.enabled, "RUSTGUAC_RECORDING_ENABLED");
+        env_parse!(rec.max_disk_percent, "RUSTGUAC_RECORDING_MAX_DISK_PERCENT", u8);
+        env_parse!(rec.max_recordings, "RUSTGUAC_RECORDING_MAX_RECORDINGS", u32);
+        env_parse!(rec.rotation_interval_secs, "RUSTGUAC_RECORDING_ROTATION_INTERVAL_SECS", u64);
+    }
+
+    // --- [vdi] ---
+    if config.vdi.is_none() && any_env(&[
+        "RUSTGUAC_VDI_ENABLED", "RUSTGUAC_VDI_DOCKER_SOCKET",
+        "RUSTGUAC_VDI_DEFAULT_CPU_LIMIT", "RUSTGUAC_VDI_DEFAULT_MEMORY_LIMIT",
+        "RUSTGUAC_VDI_READY_TIMEOUT_SECS", "RUSTGUAC_VDI_IDLE_TIMEOUT_MINS",
+        "RUSTGUAC_VDI_ALLOWED_IMAGES", "RUSTGUAC_VDI_HOME_BASE",
+    ]) {
+        config.vdi = Some(VdiConfig {
+            enabled: false,
+            docker_socket: default_docker_socket(),
+            default_cpu_limit: 0.0,
+            default_memory_limit: 0,
+            ready_timeout_secs: default_ready_timeout_secs(),
+            idle_timeout_mins: default_idle_timeout_mins(),
+            allowed_images: Vec::new(),
+            home_base: None,
+        });
+    }
+    if let Some(ref mut vdi) = config.vdi {
+        env_bool!(vdi.enabled, "RUSTGUAC_VDI_ENABLED");
+        env_str!(vdi.docker_socket, "RUSTGUAC_VDI_DOCKER_SOCKET");
+        env_parse!(vdi.default_cpu_limit, "RUSTGUAC_VDI_DEFAULT_CPU_LIMIT", f64);
+        env_parse!(vdi.default_memory_limit, "RUSTGUAC_VDI_DEFAULT_MEMORY_LIMIT", u64);
+        env_parse!(vdi.ready_timeout_secs, "RUSTGUAC_VDI_READY_TIMEOUT_SECS", u64);
+        env_parse!(vdi.idle_timeout_mins, "RUSTGUAC_VDI_IDLE_TIMEOUT_MINS", u64);
+        env_vec!(vdi.allowed_images, "RUSTGUAC_VDI_ALLOWED_IMAGES");
+        env_opt_str!(vdi.home_base, "RUSTGUAC_VDI_HOME_BASE");
+    }
+
+    // --- [theme] ---
+    if config.theme.is_none() && any_env(&[
+        "RUSTGUAC_THEME_PRESET",
+        "RUSTGUAC_THEME_PRIMARY_COLOR", "RUSTGUAC_THEME_PRIMARY_HOVER",
+        "RUSTGUAC_THEME_ACCENT_COLOR", "RUSTGUAC_THEME_ACCENT_HOVER",
+        "RUSTGUAC_THEME_BG_COLOR", "RUSTGUAC_THEME_SURFACE_COLOR", "RUSTGUAC_THEME_INPUT_COLOR",
+        "RUSTGUAC_THEME_TEXT_COLOR", "RUSTGUAC_THEME_TEXT_MUTED", "RUSTGUAC_THEME_BORDER_COLOR",
+        "RUSTGUAC_THEME_TEXT_DIM", "RUSTGUAC_THEME_TEXT_ON_PRIMARY", "RUSTGUAC_THEME_BTN_DISABLED",
+        "RUSTGUAC_THEME_STATUS_PENDING", "RUSTGUAC_THEME_STATUS_ACTIVE",
+        "RUSTGUAC_THEME_STATUS_COMPLETED", "RUSTGUAC_THEME_STATUS_ERROR", "RUSTGUAC_THEME_STATUS_EXPIRED",
+        "RUSTGUAC_THEME_TYPE_SSH_BG", "RUSTGUAC_THEME_TYPE_SSH_FG",
+        "RUSTGUAC_THEME_TYPE_RDP_BG", "RUSTGUAC_THEME_TYPE_RDP_FG",
+        "RUSTGUAC_THEME_TYPE_VNC_BG", "RUSTGUAC_THEME_TYPE_VNC_FG",
+        "RUSTGUAC_THEME_TYPE_WEB_BG", "RUSTGUAC_THEME_TYPE_WEB_FG",
+        "RUSTGUAC_THEME_TYPE_VDI_BG", "RUSTGUAC_THEME_TYPE_VDI_FG",
+        "RUSTGUAC_THEME_HOP_BG", "RUSTGUAC_THEME_HOP_FG",
+        "RUSTGUAC_THEME_BG_PATTERN", "RUSTGUAC_THEME_LOGO_URL",
+    ]) {
+        config.theme = Some(ThemeConfig::default());
+    }
+    if let Some(ref mut theme) = config.theme {
+        env_opt_str!(theme.preset, "RUSTGUAC_THEME_PRESET");
+        env_opt_str!(theme.primary_color, "RUSTGUAC_THEME_PRIMARY_COLOR");
+        env_opt_str!(theme.primary_hover, "RUSTGUAC_THEME_PRIMARY_HOVER");
+        env_opt_str!(theme.accent_color, "RUSTGUAC_THEME_ACCENT_COLOR");
+        env_opt_str!(theme.accent_hover, "RUSTGUAC_THEME_ACCENT_HOVER");
+        env_opt_str!(theme.bg_color, "RUSTGUAC_THEME_BG_COLOR");
+        env_opt_str!(theme.surface_color, "RUSTGUAC_THEME_SURFACE_COLOR");
+        env_opt_str!(theme.input_color, "RUSTGUAC_THEME_INPUT_COLOR");
+        env_opt_str!(theme.text_color, "RUSTGUAC_THEME_TEXT_COLOR");
+        env_opt_str!(theme.text_muted, "RUSTGUAC_THEME_TEXT_MUTED");
+        env_opt_str!(theme.border_color, "RUSTGUAC_THEME_BORDER_COLOR");
+        env_opt_str!(theme.text_dim, "RUSTGUAC_THEME_TEXT_DIM");
+        env_opt_str!(theme.text_on_primary, "RUSTGUAC_THEME_TEXT_ON_PRIMARY");
+        env_opt_str!(theme.btn_disabled, "RUSTGUAC_THEME_BTN_DISABLED");
+        env_opt_str!(theme.status_pending, "RUSTGUAC_THEME_STATUS_PENDING");
+        env_opt_str!(theme.status_active, "RUSTGUAC_THEME_STATUS_ACTIVE");
+        env_opt_str!(theme.status_completed, "RUSTGUAC_THEME_STATUS_COMPLETED");
+        env_opt_str!(theme.status_error, "RUSTGUAC_THEME_STATUS_ERROR");
+        env_opt_str!(theme.status_expired, "RUSTGUAC_THEME_STATUS_EXPIRED");
+        env_opt_str!(theme.type_ssh_bg, "RUSTGUAC_THEME_TYPE_SSH_BG");
+        env_opt_str!(theme.type_ssh_fg, "RUSTGUAC_THEME_TYPE_SSH_FG");
+        env_opt_str!(theme.type_rdp_bg, "RUSTGUAC_THEME_TYPE_RDP_BG");
+        env_opt_str!(theme.type_rdp_fg, "RUSTGUAC_THEME_TYPE_RDP_FG");
+        env_opt_str!(theme.type_vnc_bg, "RUSTGUAC_THEME_TYPE_VNC_BG");
+        env_opt_str!(theme.type_vnc_fg, "RUSTGUAC_THEME_TYPE_VNC_FG");
+        env_opt_str!(theme.type_web_bg, "RUSTGUAC_THEME_TYPE_WEB_BG");
+        env_opt_str!(theme.type_web_fg, "RUSTGUAC_THEME_TYPE_WEB_FG");
+        env_opt_str!(theme.type_vdi_bg, "RUSTGUAC_THEME_TYPE_VDI_BG");
+        env_opt_str!(theme.type_vdi_fg, "RUSTGUAC_THEME_TYPE_VDI_FG");
+        env_opt_str!(theme.hop_bg, "RUSTGUAC_THEME_HOP_BG");
+        env_opt_str!(theme.hop_fg, "RUSTGUAC_THEME_HOP_FG");
+        env_opt_str!(theme.bg_pattern, "RUSTGUAC_THEME_BG_PATTERN");
+        env_opt_str!(theme.logo_url, "RUSTGUAC_THEME_LOGO_URL");
+    }
+
+    // --- [rdp] ---
+    if config.rdp.is_none() && any_env(&["RUSTGUAC_RDP_DEFAULT_AUTH_PKG"]) {
+        config.rdp = Some(RdpConfig::default());
+    }
+    if let Some(ref mut rdp) = config.rdp {
+        env_opt_str!(rdp.default_auth_pkg, "RUSTGUAC_RDP_DEFAULT_AUTH_PKG");
+    }
+}
+
 impl Config {
     pub fn load(path: Option<&str>) -> Self {
         // Note: tracing is initialised later (in run_server), so config-load
@@ -1063,19 +1366,9 @@ impl Config {
             }
         };
 
-        // OIDC client_secret resolution. The env var wins over whatever
-        // is in the config file, and is the documented way to keep the
-        // secret out of TOML on disk. Either source is fine, but at least
-        // one must produce a non-empty value when `[oidc]` is present;
-        // bug #121 was that the field was non-Optional in serde, so
-        // omitting it from config.toml failed parsing before the env var
-        // could fill it in.
-        if let Some(ref mut oidc) = config.oidc {
-            if let Ok(secret) = std::env::var("OIDC_CLIENT_SECRET") {
-                if !secret.is_empty() {
-                    oidc.client_secret = Some(secret);
-                }
-            }
+        apply_env_overrides(&mut config);
+
+        if let Some(ref oidc) = config.oidc {
             let has_secret = oidc
                 .client_secret
                 .as_ref()
@@ -1085,8 +1378,8 @@ impl Config {
                 eprintln!(
                     "[config] ERROR: [oidc] is configured but no client_secret was provided.\n\
                      [config]        Set `client_secret = \"...\"` in config.toml, or export\n\
-                     [config]        OIDC_CLIENT_SECRET in the rustguac environment\n\
-                     [config]        (e.g. /opt/rustguac/env)."
+                     [config]        RUSTGUAC_OIDC_CLIENT_SECRET in the environment\n\
+                     [config]        (legacy: OIDC_CLIENT_SECRET also accepted)."
                 );
                 std::process::exit(1);
             }
