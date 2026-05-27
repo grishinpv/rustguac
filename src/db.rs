@@ -151,8 +151,17 @@ fn repair_db_ownership(path: &Path) {
     }
 }
 
+/// Open an existing database without running migrations.
+pub fn open_db(path: &Path) -> rusqlite::Result<Db> {
+    tracing::info!("opening existing db {}", path.display());
+    let conn = Connection::open(path)?;
+    repair_db_ownership(path);
+    Ok(Arc::new(Mutex::new(conn)))
+}
+
 /// Open (or create) the database and run migrations.
 pub fn init_db(path: &Path) -> rusqlite::Result<Db> {
+    tracing::info!("initializing db {}", path.display());
     let conn = Connection::open(path)?;
     repair_db_ownership(path);
     conn.execute_batch(

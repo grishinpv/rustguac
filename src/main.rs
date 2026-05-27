@@ -166,8 +166,18 @@ async fn main() {
     // Load config
     let config = Config::load(cli.config.as_deref());
 
-    // Open database
-    let database = db::init_db(&config.db_path).expect("Failed to open database");
+    // Open database — init (with migrations) only when the file doesn't exist yet
+    let database = if config.db_path.exists() {
+        db::open_db(&config.db_path).expect("Failed to open database")
+    } else {
+        if let Some(parent) = config.db_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .unwrap_or_else(|e| eprintln!("warning: could not create db directory {}: {}", parent.display(), e));
+            }
+        }
+        db::init_db(&config.db_path).expect("Failed to create database")
+    };
 
     match cli.command {
         None | Some(Command::Serve) => run_server(config, database).await,
