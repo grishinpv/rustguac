@@ -436,6 +436,9 @@
             <label>Display name
                 <input type="text" id="em-display-name" placeholder="e.g. Web Server 01">
             </label>
+            <label>Description <span style="color:var(--text-muted);font-size:0.85em">(optional)</span>
+                <input type="text" id="em-description" placeholder="Short description shown in the connections table">
+            </label>
             <label>Type
                 <select id="em-type">
                     <option value="ssh">SSH</option>
@@ -1962,7 +1965,7 @@
             }
 
             var html = '<table class="entries-table"><thead><tr>' +
-                '<th>Name</th><th>Type</th><th>Host</th><th>User</th><th></th>';
+                '<th>Name</th><th>Type</th><th>Host</th><th>User</th><th>Description</th><th></th>';
             if (isAdmin) html += '<th></th><th></th><th></th>';
             html += '</tr></thead><tbody>';
 
@@ -1989,6 +1992,7 @@
                 var needsPrompt = (e.prompt_credentials || !e.has_credentials) && e.session_type !== 'web';
                 if (needsPrompt) userCol += ' <span style="color:#888;font-size:0.8em" title="Credentials will be prompted at connect time">[prompt]</span>';
                 html += '<td>' + userCol + '</td>';
+                html += '<td style="color:var(--text-muted);font-style:italic">' + escapeHtml(e.description || '') + '</td>';
                 var connectLabel = needsPrompt ? 'Login...' : 'Connect';
                 html += '<td><button class="btn-connect" data-connect="' + escapeAttr(e.name) + '" data-scope="' + escapeAttr(scope) + '" data-folder="' + escapeAttr(folder) + '">' + connectLabel + '</button></td>';
                 if (isAdmin) {
@@ -2863,6 +2867,7 @@
         document.getElementById('btn-new-entry').addEventListener('click', openNewEntry);
 
         function clearEntryFields() {
+            document.getElementById('em-description').value = '';
             document.getElementById('em-hostname').value = '';
             document.getElementById('em-port').value = '22';
             document.getElementById('em-username').value = '';
@@ -2979,6 +2984,9 @@
             if (entryData) {
                 if (entryData.display_name && entryData.display_name !== name) {
                     document.getElementById('em-display-name').value = entryData.display_name;
+                }
+                if (entryData.description) {
+                    document.getElementById('em-description').value = entryData.description;
                 }
                 if (type === 'ssh') {
                     document.getElementById('em-hostname').value = entryData.hostname || '';
@@ -3115,6 +3123,7 @@
         document.getElementById('em-save').addEventListener('click', function() {
             var name = document.getElementById('em-name').value.trim();
             var displayName = document.getElementById('em-display-name').value.trim();
+            var description = document.getElementById('em-description').value.trim();
             var type = entryTypeSelect.value;
             var errEl = document.getElementById('em-error');
 
@@ -3125,6 +3134,7 @@
 
             var entry = { type: type };
             if (displayName) entry.display_name = displayName;
+            if (description) entry.description = description;
 
             if (type === 'ssh') {
                 var h = document.getElementById('em-hostname').value.trim();

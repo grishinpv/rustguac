@@ -185,6 +185,9 @@ pub struct AddressBookEntry {
     /// visible entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_open_if_singleton: Option<bool>,
+    /// Optional human-readable description shown in the entries table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 impl AddressBookEntry {
@@ -303,6 +306,9 @@ pub struct EntryInfo {
     /// Auto-open on login when this is the user's only visible entry (#103).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_open_if_singleton: Option<bool>,
+    /// Optional human-readable description shown in the entries table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 impl From<(&str, &AddressBookEntry)> for EntryInfo {
@@ -359,6 +365,7 @@ impl From<(&str, &AddressBookEntry)> for EntryInfo {
             container_idle_timeout_mins: e.container_idle_timeout_mins,
             allow_sharing: e.allow_sharing,
             auto_open_if_singleton: e.auto_open_if_singleton,
+            description: e.description.clone(),
         }
     }
 }
