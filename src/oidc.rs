@@ -301,8 +301,11 @@ pub async fn callback(
         .and_then(|n| n.get(None).map(|v| v.to_string()))
         .unwrap_or_default();
 
+    tracing::debug!(email = %email, subject = %subject, name = %name, "OIDC: user info extracted from ID token");
+
     // Extract group memberships from ID token JWT payload
     let groups = extract_groups_from_jwt(&id_token.to_string(), &oidc.config.groups_claim);
+    tracing::debug!(email = %email, groups_claim = %oidc.config.groups_claim, groups_count = groups.len(), groups = ?groups, "OIDC: groups extracted");
     if !groups.is_empty() {
         tracing::info!(email = %email, groups = ?groups, "OIDC groups extracted");
         let db_for_seen = database.clone();
@@ -414,6 +417,14 @@ pub async fn callback(
     let redirect_to = extract_cookie_from_headers(&headers, "rustguac_next")
         .filter(|n| n.starts_with('/') && !n.starts_with("//") && !n.contains("://"))
         .unwrap_or_else(|| "/addressbook.html".to_string());
+
+    tracing::debug!(
+        email = %email,
+        redirect_to = %redirect_to,
+        token_prefix = %&session_token[..session_token.len().min(8)],
+        ttl_secs = ttl_secs,
+        "OIDC: setting session cookie"
+    );
 
     // Set session cookie and redirect; clear OIDC state and next cookies
     let session_cookie = format!(
